@@ -54,7 +54,7 @@ The coverage binary must be compiled **separately** from both the AFL-instrument
 
     When the run completes you will see:
 
-    ```
+    ```text
     [*] Processing N queue files
       [+] Finished in X.Xs (Y files/sec)
     [*] Generated HTML coverage report in: /tmp/afl_out/coverage_html
@@ -127,7 +127,7 @@ args = ["--memory", "--noenc", "--valid", "@@"]
 report_type = "HTML"
 
 # true = one report per fuzzer instance, false = unified merged report
-split_reports = false
+split_report = false
 
 # Extra flags for llvm-cov show
 misc_show_args = ["--show-branches=count"]

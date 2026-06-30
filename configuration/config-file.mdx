@@ -82,11 +82,11 @@ Controls how `aflr cov` generates LLVM coverage reports from the AFL++ output di
   ```
 </ParamField>
 
-<ParamField path="split_reports" type="boolean" default="false">
+<ParamField path="split_report" type="boolean" default="false">
   When `true`, AFL Runner generates a separate coverage report for each AFL++ queue sub-directory (one per fuzzer instance) rather than a single unified report over all queues. Useful for comparing per-instance coverage contributions.
 
   ```toml
-  split_reports = false
+  split_report = false
   ```
 </ParamField>
 
@@ -228,11 +228,11 @@ Miscellaneous options that control the AFL Runner launch experience and performa
   ```
 </ParamField>
 
-<ParamField path="ramdisk" type="boolean" default="false">
+<ParamField path="is_ramdisk" type="boolean" default="false">
   When `true`, AFL Runner attempts to create and use a RAM-backed filesystem for AFL++ to store its `.cur_input` scratch file. This can reduce disk I/O pressure on spinning disks or reduce wear on SSDs during long campaigns.
 
   ```toml
-  ramdisk = false
+  is_ramdisk = false
   ```
 </ParamField>
 
@@ -256,7 +256,11 @@ Miscellaneous options that control the AFL Runner launch experience and performa
 
 ## Annotated template
 
-This is the canonical configuration template shipped with AFL Runner (`AFLR_CFG_TEMPL.toml`). Every supported key is present and annotated.
+The following template lists every supported configuration key with inline comments. Copy it as a starting point and fill in the paths for your target.
+
+<Note>
+  Two keys differ from the upstream `AFLR_CFG_TEMPL.toml` file: the coverage split flag is `split_report` (singular) and the ramdisk flag is `is_ramdisk`, matching the exact field names in the Rust structs that serde deserializes into. The upstream template has typos (`split_reports` and `ramdisk`) that are silently ignored at parse time.
+</Note>
 
 ```toml
 [target]
@@ -283,7 +287,7 @@ args = ["-foo", "--bar", "baz", "@@"]
 report_type = "HTML"
 
 # Generate a report for each queue sub-directory instead of a unified one
-split_reports = false
+split_report = false
 
 # Miscellaneous flags the user wants to provide extra to `llvm-cov show...`
 # Compare: https://llvm.org/docs/CommandGuide/llvm-cov.html#llvm-cov-show
@@ -334,7 +338,7 @@ tui = true
 detached = false
 
 # If specified the AFLR will attempt to create a ramdisk for fuzzing
-ramdisk = false
+is_ramdisk = false
 
 # Provide a seed for AFLR internal PRNG to get deterministic command generation
 seed = 0xdeadb33fc0ffee
@@ -383,7 +387,7 @@ args = [
 report_type = "TEXT"
 
 # Generate a report for each queue sub-directory instead of a unified one
-split_reports = false
+split_report = false
 
 # Miscellaneous flags the user wants to provide extra to `llvm-cov show...`
 misc_show_args = []
@@ -415,7 +419,7 @@ runner = "tmux"
 [misc]
 tui = true
 detached = false
-ramdisk = false
+is_ramdisk = false
 ```
 
 <Tip>

@@ -1,5 +1,5 @@
 ---
-title: "aflr run — Launch a Multi-Core Fuzzing Campaign"
+title: "aflr run — Start a Multi-Core AFL++ Fuzzing Campaign"
 sidebarTitle: "run"
 description: "aflr run generates AFL++ commands and launches them in a tmux or screen session. Supports TUI mode, detached start, RAMDisk, and dry-run output."
 ---
@@ -116,7 +116,7 @@ Pass target binary arguments after a `--` separator. Use `@@` as a placeholder w
 
 When `--session-name` is not provided, aflr derives a session name deterministically:
 
-```
+```text
 {target_binary_name}_{hash}
 ```
 

@@ -1,7 +1,7 @@
 ---
-title: "Manage Tmux and Screen Sessions with AFL Runner"
+title: "Manage Tmux and Screen Sessions with AFL Runner (aflr)"
 sidebarTitle: "Session Management"
-description: "AFL Runner automatically creates and manages tmux or GNU screen sessions for multi-core AFL++ campaigns. Learn how sessions are named, attached, and terminated."
+description: "AFL Runner creates and manages tmux or GNU screen sessions for multi-core AFL++ campaigns. Learn how sessions are named, started, attached, and terminated."
 ---
 
 When you run `aflr run`, AFL Runner creates a terminal multiplexer session — tmux by default, or GNU screen — and launches every `afl-fuzz` instance inside it. Each fuzzer gets its own pane so you can attach and inspect individual runners at any time. The session persists in the background so your campaign survives terminal disconnections, and AFL Runner tracks all spawned PIDs in a file so it can perform a clean shutdown on demand.
@@ -41,7 +41,7 @@ aflr run -t ./target -i ./corpus -o /tmp/out -n 8 --session-name my_campaign
 
 **Auto-generated name** — if `--session-name` is omitted, AFL Runner derives a deterministic 6-digit hash from the combination of the target binary filename, the input directory name, and any target arguments, then formats it as:
 
-```
+```text
 <target_binary_name>_<6-digit-hash>
 # examples:
 #   xmllint_482931
@@ -56,7 +56,7 @@ Because the hash is deterministic, the same target + corpus + args will always p
   <Step title="Create and start">
     `aflr run` generates all `afl-fuzz` commands, writes them into a shell script, and executes it to create the multiplexer session. A PID file is written to:
 
-    ```
+    ```text
     /tmp/.<session_name>_<aflr_pid>.pids
     ```
 

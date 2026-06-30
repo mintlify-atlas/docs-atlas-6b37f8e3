@@ -1,5 +1,5 @@
 ---
-title: "Set Up Shell Completion for AFL Runner"
+title: "Set Up Bash and ZSH Shell Completion for AFL Runner"
 sidebarTitle: "Shell Completion"
 description: "Generate and install bash or zsh shell completion scripts for aflr, enabling tab completion for subcommands, flags, and live tmux session names."
 ---
@@ -29,7 +29,7 @@ Shell completion is an **optional compile-time feature**. The `completion` featu
 
     After running `generate_completions`, a `completions/` directory is created in your working directory (or `$OUT_DIR` if set) containing:
 
-    ```
+    ```text
     completions/
     ├── aflr_dynamic.bash   ← dynamic completion (tmux session names for kill)
     ├── aflr_dynamic.zsh    ← dynamic completion (tmux session names for kill)

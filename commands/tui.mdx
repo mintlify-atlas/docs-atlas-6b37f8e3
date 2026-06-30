@@ -1,7 +1,7 @@
 ---
-title: "aflr tui — Real-Time Fuzzing Campaign Monitor"
+title: "aflr tui — Real-Time AFL++ Fuzzing Campaign Monitor"
 sidebarTitle: "tui"
-description: "aflr tui opens a ratatui terminal dashboard monitoring executions/sec, crashes, hangs, stability, coverage, and corpus size across all running AFL++ fuzzers."
+description: "aflr tui opens a ratatui terminal dashboard showing executions/sec, crashes, hangs, stability, and corpus size live across all AFL++ fuzzers."
 ---
 
 `aflr tui` launches a terminal user interface built with [ratatui](https://ratatui.rs) that aggregates and displays live statistics from all fuzzer instances in an AFL++ campaign. It reads the fuzzer stat files written by each `afl-fuzz` process into the output directory and renders them in a structured dashboard — no running processes need to be attached or signalled. Use `aflr tui` to monitor a campaign that was started with `--detached`, to reconnect to a TUI after disconnecting from a terminal, or to inspect any pre-existing AFL++ output directory even from a previous campaign run.

@@ -1,5 +1,5 @@
 ---
-title: "Run a Best-Practice Multi-Core Fuzzing Campaign"
+title: "Run a Best-Practice Multi-Core AFL++ Fuzzing Campaign"
 sidebarTitle: "Multi-Core Campaign"
 description: "Walk through a complete multi-core AFLPlusPlus campaign using AFL Runner: compile targets, configure aflr, launch in tmux, and monitor with the TUI."
 ---
@@ -181,7 +181,7 @@ Add `--use-seed-afl` to forward the same seed value to AFL++ itself for determin
 
 If you omit `--session-name`, AFL Runner generates a deterministic name from the target binary filename, input directory name, and target arguments using a 6-digit numeric hash:
 
-```
+```text
 <target_binary_name>_<6-digit-hash>
 # e.g.  xmllint_482931
 ```
