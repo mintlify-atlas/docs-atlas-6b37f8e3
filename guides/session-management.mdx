@@ -1,0 +1,128 @@
+---
+title: "Manage Tmux and Screen Sessions with AFL Runner"
+sidebarTitle: "Session Management"
+description: "AFL Runner automatically creates and manages tmux or GNU screen sessions for multi-core AFL++ campaigns. Learn how sessions are named, attached, and terminated."
+---
+
+When you run `aflr run`, AFL Runner creates a terminal multiplexer session — tmux by default, or GNU screen — and launches every `afl-fuzz` instance inside it. Each fuzzer gets its own pane so you can attach and inspect individual runners at any time. The session persists in the background so your campaign survives terminal disconnections, and AFL Runner tracks all spawned PIDs in a file so it can perform a clean shutdown on demand.
+
+<Note>
+tmux and screen are **optional dependencies**. They are only required for the `aflr run` session-management features. If you only use `aflr gen` to print commands or `aflr tui` to observe an already-running campaign, neither multiplexer needs to be installed.
+</Note>
+
+## Session backends
+
+AFL Runner supports two multiplexer backends, selected with `--session-runner`:
+
+| Backend | Default | Kill command | Check command | Attach command |
+|---|---|---|---|---|
+| `tmux` | ✅ | `tmux kill-session -t <name>` | `tmux has-session -t <name>` | `tmux attach-session -t <name>` |
+| `screen` | ❌ | `screen -S <name> -X kill` | `screen -list <name>` | `screen -r <name>` |
+
+Switch backends by passing `--session-runner` on the command line or setting `runner` in the `[session]` section of your config file:
+
+```bash
+# Use tmux (default — can be omitted)
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 --session-runner tmux
+
+# Use GNU screen instead
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 --session-runner screen
+```
+
+## Session naming
+
+AFL Runner supports both explicit and auto-generated session names.
+
+**Custom name** — pass `--session-name` to choose a memorable identifier:
+
+```bash
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 --session-name my_campaign
+```
+
+**Auto-generated name** — if `--session-name` is omitted, AFL Runner derives a deterministic 6-digit hash from the combination of the target binary filename, the input directory name, and any target arguments, then formats it as:
+
+```
+<target_binary_name>_<6-digit-hash>
+# examples:
+#   xmllint_482931
+#   readpng_007214
+```
+
+Because the hash is deterministic, the same target + corpus + args will always produce the same session name. You can predict it with `aflr gen` (the name is printed) or simply run `tmux ls` / `screen -ls` after launch.
+
+## Session lifecycle
+
+<Steps>
+  <Step title="Create and start">
+    `aflr run` generates all `afl-fuzz` commands, writes them into a shell script, and executes it to create the multiplexer session. A PID file is written to:
+
+    ```
+    /tmp/.<session_name>_<aflr_pid>.pids
+    ```
+
+    This file lists every `afl-fuzz` PID spawned during the session and is used by `aflr kill` for clean process cleanup.
+  </Step>
+
+  <Step title="Attach or monitor">
+    After creation, AFL Runner's behaviour depends on which attachment mode was requested:
+
+    | Flag | Behaviour |
+    |---|---|
+    | *(none)* | Attaches directly to the multiplexer session after launch |
+    | `--tui` | Launches the built-in stats TUI instead of the raw session view |
+    | `--detached` | Starts the session and exits immediately — fuzzers run fully in the background |
+
+    `--tui` and `--detached` are **mutually exclusive**. AFL Runner will exit with an error if both are specified.
+
+    You can reconnect the TUI at any time, even from a different terminal, by pointing it at the output directory:
+
+    ```bash
+    aflr tui /tmp/out
+    ```
+  </Step>
+
+  <Step title="Terminate">
+    Kill the session and all child fuzzers with the session name:
+
+    ```bash
+    aflr kill my_campaign
+    ```
+
+    AFL Runner checks both tmux and screen for a matching session name and terminates the one that exists. If neither backend has a session with that name, it reports the error and exits.
+  </Step>
+</Steps>
+
+## Practical examples
+
+```bash
+# Named tmux session — attach via TUI after launch
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 \
+  --session-name fuzz1 \
+  --tui
+
+# Fully detached background run — no terminal stays open
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 \
+  --detached
+
+# Use screen as the multiplexer backend
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 \
+  --session-runner screen
+
+# Preview the exact commands that would be run, without starting anything
+aflr run -t ./target -i ./corpus -o /tmp/out -n 8 \
+  --dry-run
+
+# Kill a named session
+aflr kill fuzz1
+
+# Reconnect the TUI to a running campaign (any terminal)
+aflr tui /tmp/out
+```
+
+<Tip>
+Always run `aflr run --dry-run` before launching a large campaign. It prints every `afl-fuzz` invocation — including which runners carry CMPLOG, CMPCOV, or sanitizer flags — so you can confirm the distribution looks right before committing cores for hours or days.
+</Tip>
+
+<Note>
+The auto-generated session name is deterministic but only unique per (target, corpus, args) tuple. If you run two campaigns against the same target with the same corpus in different output directories, they will collide on the same auto-generated name. Use `--session-name` to disambiguate concurrent campaigns targeting the same binary.
+</Note>

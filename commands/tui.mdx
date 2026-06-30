@@ -1,0 +1,89 @@
+---
+title: "aflr tui — Real-Time Fuzzing Campaign Monitor"
+sidebarTitle: "tui"
+description: "aflr tui opens a ratatui terminal dashboard monitoring executions/sec, crashes, hangs, stability, coverage, and corpus size across all running AFL++ fuzzers."
+---
+
+`aflr tui` launches a terminal user interface built with [ratatui](https://ratatui.rs) that aggregates and displays live statistics from all fuzzer instances in an AFL++ campaign. It reads the fuzzer stat files written by each `afl-fuzz` process into the output directory and renders them in a structured dashboard — no running processes need to be attached or signalled. Use `aflr tui` to monitor a campaign that was started with `--detached`, to reconnect to a TUI after disconnecting from a terminal, or to inspect any pre-existing AFL++ output directory even from a previous campaign run.
+
+## Synopsis
+
+```bash
+aflr tui <AFL_OUTPUT>
+```
+
+## Arguments
+
+<ParamField path="afl_output" type="path" required>
+  Path to the top-level AFL++ campaign output directory — the same directory passed as `-o` to `aflr run` or `afl-fuzz`. `aflr tui` reads the `fuzzer_stats` files inside each fuzzer subdirectory beneath this path to populate the dashboard.
+</ParamField>
+
+## Dashboard Panels
+
+The TUI is divided into several panels that update in real time:
+
+### Process Timing
+Displays high-level campaign health metrics aggregated across all running fuzzer instances:
+- **Fuzzers alive / started** — count of currently active fuzzer processes vs. total launched
+- **Total run time** — wall-clock time since the campaign was started
+- **Time without finds** — elapsed time since the last new corpus entry or crash was discovered
+- **Last crash** — time elapsed since the most recent crash was found
+- **Last hang** — time elapsed since the most recent hang was found
+
+### Overall Results
+Aggregated outcome counters for the full campaign:
+- **Cycles done** — number of complete queue-cycle passes across all fuzzers
+- **Crashes saved** — total unique crashes written to the output directory
+- **Hangs saved** — total unique hangs written to the output directory
+- **Corpus count** — total number of entries in the combined queue
+- **Stability %** — average bitmap stability across all fuzzer instances
+
+### Stage Progress
+Real-time throughput and coverage metrics:
+- **Total execs** — cumulative number of target executions across all fuzzers
+- **Execs/sec** — current aggregate execution throughput
+- **Coverage %** — percentage of discovered bitmap edges relative to the total map size
+
+### Nerd Stats
+Deeper fuzzing state metrics for advanced analysis:
+- **Tree levels** — maximum queue tree depth reached
+- **Pending favorites** — queue entries marked as favorites that have not yet been fuzzed
+- **Pending total** — total queue entries not yet fuzzed in the current cycle
+- **Cycles without finds** — number of full cycles that produced no new paths or crashes
+
+### Latest Crashes Panel
+Shown when the terminal height is **16 lines or greater**. Displays the most recently discovered crash filenames with timestamps, giving immediate visibility into new crash finds without leaving the dashboard.
+
+### Latest Hangs Panel
+Shown when the terminal height is **30 lines or greater**. Displays the most recently discovered hang filenames with timestamps, mirroring the crash panel layout.
+
+### Logs Panel
+Displays internal aflr log messages and any warnings emitted while reading fuzzer stat files.
+
+## Navigation
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit the TUI and return to the shell |
+
+## Examples
+
+```bash
+# Open the TUI for a running or completed campaign
+aflr tui /tmp/afl_out
+
+# Launch a campaign and open the TUI in one command
+aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --tui
+
+# Monitor a campaign that was started detached
+aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --detached
+aflr tui /tmp/afl_out
+```
+
+<Tip>
+  `aflr tui` is a full replacement for `afl-whatsup` and works on **any** existing AFL++ output directory — including campaigns that are no longer running. Point it at any historic output directory to review final campaign statistics without needing to reattach to a session.
+</Tip>
+
+<Note>
+  The crashes and hangs panels are conditionally rendered based on terminal height. If your terminal is smaller than 30 lines, the hangs panel is hidden; smaller than 16 lines hides the crashes panel too. Resize your terminal or use a full-screen terminal emulator for the complete dashboard view.
+</Note>

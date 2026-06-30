@@ -1,0 +1,162 @@
+---
+title: "aflr run — Launch a Multi-Core Fuzzing Campaign"
+sidebarTitle: "run"
+description: "aflr run generates AFL++ commands and launches them in a tmux or screen session. Supports TUI mode, detached start, RAMDisk, and dry-run output."
+---
+
+`aflr run` is the primary command for starting a full AFL++ fuzzing campaign. It generates the complete set of `afl-fuzz` invocations following multi-core best practices — assigning one primary fuzzer and distributing secondary roles across the remaining runners — then launches them inside a managed `tmux` or `screen` session. Use `aflr run` any time you want to go from binary to active campaign in a single command, whether you need an interactive TUI dashboard, a detached background session, or a quick dry-run preview of the commands that would be executed.
+
+## Synopsis
+
+```bash
+aflr run [OPTIONS] [-- <TARGET_ARGS>...]
+```
+
+## Options
+
+### Target Binaries
+
+<ParamField path="-t, --target" type="path" optional>
+  Path to the AFL++-instrumented target binary to fuzz. This is the main binary used by the primary and most secondary fuzzer instances. Either this flag or `--config` must be provided.
+</ParamField>
+
+<ParamField path="-s, --san-target" type="path" optional>
+  Path to a `*SAN`-instrumented build of the target (e.g. compiled with AddressSanitizer). When provided, aflr designates one secondary fuzzer instance to run against this binary for memory-error detection.
+</ParamField>
+
+<ParamField path="-c, --cmpl-target" type="path" optional>
+  Path to a `CMPLOG`-instrumented binary. aflr will assign one secondary fuzzer instance in `CMPLOG` mode (`-c`) to this binary to improve comparison coverage.
+</ParamField>
+
+<ParamField path="-l, --cmpc-target" type="path" optional>
+  Path to a `Laf-intel`/`CMPCOV`-instrumented binary. aflr assigns one secondary fuzzer instance with `LAF_INTEL` environment settings to this binary.
+</ParamField>
+
+### Fuzzing Configuration
+
+<ParamField path="-n, --runners" type="integer" optional>
+  Number of parallel `afl-fuzz` processes to spin up. Defaults to `1` if not specified and not set in a config file. For multi-core campaigns set this to the number of CPU cores you want to dedicate.
+</ParamField>
+
+<ParamField path="-i, --input-dir" type="path" optional default="/tmp/afl_input">
+  Path to the seed corpus directory. Defaults to `/tmp/afl_input` when neither the flag nor a config file entry is provided.
+</ParamField>
+
+<ParamField path="-o, --output-dir" type="path" optional default="/tmp/afl_output">
+  Path to the AFL++ output directory where crashes, hangs, and queue entries are written. Defaults to `/tmp/afl_output`.
+</ParamField>
+
+<ParamField path="-x, --dictionary" type="path" optional>
+  Path to a token dictionary file (AFL++ `-x` flag). Supplying a domain-specific dictionary significantly improves coverage for text-based or protocol-based targets.
+</ParamField>
+
+<ParamField path="-b, --afl-binary" type="string" optional>
+  Override the `afl-fuzz` binary used to launch fuzzers. Useful when multiple AFL++ versions are installed or when `afl-fuzz` is not on `PATH`.
+</ParamField>
+
+<ParamField path="-m, --mode" type="enum" optional default="multiple-cores">
+  Selects the fuzzing strategy mode that controls how AFL++ flags are distributed across runners. Accepted values:
+
+  - `default` — minimal flag set, closest to a bare `afl-fuzz` invocation
+  - `multiple-cores` — *(default)* full multi-core strategy with power schedules, CMPLOG rotation, and sanitizer secondaries
+  - `ci-fuzzing` — lightweight mode suited for short CI pipeline runs
+</ParamField>
+
+<ParamField path="--seed" type="integer" optional>
+  Integer seed for aflr's internal PRNG, which controls how power schedules and secondary roles are assigned. Providing a fixed seed makes command generation deterministic and reproducible across runs.
+</ParamField>
+
+<ParamField path="--use-seed-afl" type="bool" optional default="false">
+  When set, forwards the value passed to `--seed` to AFL++ via the `AFL_RANDOM_SEED` environment variable as well. Requires `--seed` to be specified.
+</ParamField>
+
+<ParamField path="--nyx-mode" type="bool" optional default="false">
+  Enables AFL++ Nyx mode for snapshot-based fuzzing of full-system targets. Requires a Nyx-enabled AFL++ build.
+</ParamField>
+
+<ParamField path="--config" type="path" optional>
+  Path to a TOML configuration file. All fields in the config file are merged with CLI flags; explicit CLI flags take precedence over config file values.
+</ParamField>
+
+### Session Control
+
+<ParamField path="--session-runner" type="enum" optional default="tmux">
+  The multiplexer backend used to manage the fuzzing session. Accepted values: `tmux` *(default)* or `screen`.
+</ParamField>
+
+<ParamField path="--session-name" type="string" optional>
+  A custom name for the tmux or screen session. If omitted, aflr generates a name automatically using the format `{target_binary_name}_{hash}`, where the hash is derived from the target binary name, the input directory name, and the target arguments.
+</ParamField>
+
+<ParamField path="--tui" type="bool" optional default="false">
+  Launch the ratatui TUI monitor immediately after starting the campaign. The TUI displays live stats across all fuzzer instances. Incompatible with `--detached`.
+</ParamField>
+
+<ParamField path="--detached" type="bool" optional default="false">
+  Start the session and return to the calling shell without attaching to it. Incompatible with `--tui`.
+</ParamField>
+
+<ParamField path="--dry-run" type="bool" optional default="false">
+  Print the generated `afl-fuzz` commands to stdout without creating a session or running any fuzzer. Useful for auditing the command set before committing to a campaign.
+</ParamField>
+
+<ParamField path="--is-ramdisk" type="bool" optional default="false">
+  Instructs AFL++ to treat the output directory as residing on a RAMDisk by setting the appropriate AFL++ environment flags, reducing I/O overhead on the storage subsystem.
+</ParamField>
+
+### Target Arguments
+
+```bash
+aflr run [OPTIONS] -- <TARGET_ARGS>...
+```
+
+Pass target binary arguments after a `--` separator. Use `@@` as a placeholder where AFL++ should substitute the mutated input file path.
+
+## Auto-generated Session Names
+
+When `--session-name` is not provided, aflr derives a session name deterministically:
+
+```
+{target_binary_name}_{hash}
+```
+
+The hash is a 6-digit number computed from the concatenation of the target binary filename, the input directory basename, and the raw target arguments string. This means the same invocation always produces the same session name, making it easy to reference with `aflr kill` or `aflr tui`.
+
+## Examples
+
+```bash
+# Basic 8-core campaign with TUI
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 8 --tui
+
+# Full multi-binary campaign: main + ASAN + CMPLOG + CMPCOV, 16 cores
+aflr run -t ./target_afl -s ./target_asan -c ./target_cmplog -l ./target_cmpcov \
+  -i ./corpus -o /tmp/out -n 16 --session-name my_campaign --tui
+
+# Dry run — print commands without executing anything
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 4 --dry-run
+
+# Load full configuration from a TOML file
+aflr run --config ./aflr_cfg.toml
+
+# Detached launch — session runs in the background, shell is returned immediately
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 8 --detached
+
+# Target with fixed input via @@ and a dictionary
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 8 -x ./tokens.dict -- @@
+
+# Deterministic command layout with seed, using screen instead of tmux
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 8 \
+  --seed 42 --session-runner screen --session-name fuzz_42
+```
+
+<Warning>
+  `--tui` and `--detached` are mutually exclusive. Passing both flags causes `aflr run` to exit with an error before any session is created.
+</Warning>
+
+<Note>
+  When `--dry-run` is active, both `--tui` and `--detached` are silently forced to `false`. No session is created and no process is spawned.
+</Note>
+
+<Tip>
+  Use `--dry-run` together with `--seed` to get a fully deterministic preview of the exact command set. Pipe the output to a shell script for manual or CI orchestration outside of tmux/screen.
+</Tip>

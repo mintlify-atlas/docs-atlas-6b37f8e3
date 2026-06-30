@@ -1,0 +1,108 @@
+---
+title: "aflr cov — Collect and Visualize Fuzzing Coverage"
+sidebarTitle: "cov"
+description: "aflr cov runs an LLVM-instrumented binary against the AFL++ queue corpus and generates HTML or text coverage reports with llvm-cov and llvm-profdata."
+---
+
+`aflr cov` automates the coverage-reporting workflow that follows a fuzzing campaign. It walks the AFL++ output directory, discovers all `queue` subdirectories produced by the fuzzer instances, replays each queued input through your coverage-instrumented target binary to generate raw LLVM profile data, merges the profiles with `llvm-profdata`, and finally produces a coverage report using `llvm-cov`. The result is either an interactive HTML report (default) or a plain-text summary, optionally split per fuzzer queue directory. Use `aflr cov` after a campaign run to understand which code paths the fuzzer has reached and which remain uncovered.
+
+## Synopsis
+
+```bash
+aflr cov [OPTIONS] [-- <TARGET_ARGS>...]
+```
+
+## Prerequisites
+
+The following tools must be available on `PATH` before invoking `aflr cov`:
+
+- `llvm-profdata` — merges raw LLVM profile files
+- `llvm-cov` — generates coverage reports from merged profiles
+- `genhtml` — converts LCOV data to HTML (required for HTML reports)
+- `lcov` — LCOV coverage data processor
+
+<Warning>
+  The target binary passed to `aflr cov` must be compiled with LLVM source-based coverage instrumentation. Compile your coverage binary with `-fprofile-instr-generate -fcoverage-mapping` (or set `AFL_LLVM_CPROF=1` when using AFL++'s LLVM pass). Passing an AFL-instrumented binary that lacks coverage instrumentation will produce empty or incorrect reports.
+</Warning>
+
+## Options
+
+### Target
+
+<ParamField path="-t, --target" type="path" optional>
+  Path to the coverage-instrumented target binary. This binary is the one compiled with `AFL_LLVM_CPROF=1` or equivalent LLVM source-based coverage flags, **not** the AFL++-instrumented binary used during fuzzing. Either this flag or `--config` must be provided.
+</ParamField>
+
+### Directories
+
+<ParamField path="-i, --output-dir" type="path" optional default="/tmp/afl_output">
+  The top-level AFL++ output directory — the same path passed as `-o` during the fuzzing campaign. `aflr cov` searches this directory recursively for `queue/` subdirectories containing the corpus inputs to replay. Defaults to `/tmp/afl_output`.
+</ParamField>
+
+### Report Format
+
+<ParamField path="--split-report" type="bool" optional default="false">
+  When set, `aflr cov` generates a separate coverage report for each individual fuzzer's `queue/` subdirectory rather than merging all profiles into a single unified report. Useful for comparing coverage contributions across primary and secondary fuzzer instances.
+</ParamField>
+
+<ParamField path="--text-report" type="bool" optional default="false">
+  Force a plain-text coverage summary instead of the default HTML report. The text output is written to stdout and contains per-file and per-function coverage percentages.
+</ParamField>
+
+### Extra llvm-cov Arguments
+
+<ParamField path="-a, --show-args" type="string[]" optional>
+  A list of additional arguments forwarded verbatim to `llvm-cov show`. Use this to pass flags such as `--show-line-counts-or-regions`, `--ignore-filename-regex`, or source file filters.
+</ParamField>
+
+<ParamField path="-r, --report-args" type="string[]" optional>
+  A list of additional arguments forwarded verbatim to `llvm-cov report`. Use this to pass flags such as `--ignore-filename-regex` or `--use-color`.
+</ParamField>
+
+### Configuration
+
+<ParamField path="--config" type="path" optional>
+  Path to a TOML configuration file. Config file values for the `[coverage]` and `[target]` sections are merged with CLI flags; explicit CLI flags take precedence.
+</ParamField>
+
+### Target Arguments
+
+```bash
+aflr cov [OPTIONS] -- <TARGET_ARGS>...
+```
+
+Pass target binary arguments after a `--` separator. Use `@@` as a placeholder where the input file path should be substituted during corpus replay. These arguments are passed directly to each invocation of the coverage binary.
+
+## Examples
+
+```bash
+# Generate an HTML coverage report (default) from the AFL++ output directory
+aflr cov -t ./target_cov -i /tmp/afl_out
+
+# Generate a plain-text coverage summary
+aflr cov -t ./target_cov -i /tmp/afl_out --text-report
+
+# Generate separate reports for each fuzzer queue directory
+aflr cov -t ./target_cov -i /tmp/afl_out --split-report
+
+# Target that reads a file — pass @@ as target argument
+aflr cov -t ./target_cov -i /tmp/afl_out -- @@
+
+# Target with additional flags before the input file
+aflr cov -t ./target_cov -i /tmp/afl_out -- --verbose @@
+
+# Pass extra llvm-cov show flags to include region-level detail
+aflr cov -t ./target_cov -i /tmp/afl_out \
+  -a --show-line-counts-or-regions -a --ignore-filename-regex='.*test.*'
+
+# Load coverage configuration from a TOML file
+aflr cov --config ./aflr_cfg.toml
+```
+
+<Note>
+  The target binary must be compiled with LLVM source-based coverage instrumentation. When using AFL++'s LLVM mode, set `AFL_LLVM_CPROF=1` at compile time to produce a binary suitable for `aflr cov`. This is a **separate** build from your AFL-instrumented binary — you typically maintain three builds: one for AFL++ (`target_afl`), one for sanitizers (`target_asan`), and one for coverage (`target_cov`).
+</Note>
+
+<Tip>
+  Use `--split-report` after a long campaign to identify which secondary fuzzer instances (CMPLOG, SAN, CMPCOV) are discovering unique code paths compared to the primary fuzzer. This helps you tune the runner ratio for future campaigns.
+</Tip>

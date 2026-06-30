@@ -1,0 +1,190 @@
+---
+title: "Run a Best-Practice Multi-Core Fuzzing Campaign"
+sidebarTitle: "Multi-Core Campaign"
+description: "Walk through a complete multi-core AFLPlusPlus campaign using AFL Runner: compile targets, configure aflr, launch in tmux, and monitor with the TUI."
+---
+
+AFL Runner is built around the [AFL++ multi-core fuzzing guide](https://aflplus.plus/docs/fuzzing_in_depth/#c-using-multiple-cores) and automates the most tedious parts: distributing power schedules across instances, assigning CMPLOG and CMPCOV binaries to the right runners, and wiring everything into a managed tmux or screen session. This walkthrough takes you from a bare target source tree to a fully instrumented, 16-core fuzzing campaign running under the built-in TUI.
+
+<Note>
+AFL Runner focuses on the campaign-execution stage. Selecting a good seed corpus, writing a harness, and debugging crashes are outside its scope — have those ready before you begin.
+</Note>
+
+<Steps>
+  <Step title="Compile the target in multiple instrumentation flavors">
+    AFL++ extracts the most coverage when each instance of `afl-fuzz` runs a binary compiled with a different instrumentation strategy. Build four variants:
+
+    ```bash
+    # 1. Standard AFL++ instrumentation — used by the main fuzzer (-M) and most secondaries
+    CC=afl-cc CXX=afl-c++ ./configure && make -j$(nproc)
+    cp ./target ./target_afl
+
+    # 2. AddressSanitizer — catches memory errors that plain AFL++ may miss
+    AFL_USE_ASAN=1 CC=afl-cc CXX=afl-c++ ./configure && make -j$(nproc)
+    cp ./target ./target_asan
+
+    # 3. CMPLOG — enables compare-logging for smarter byte-level mutations
+    AFL_LLVM_CMPLOG=1 CC=afl-cc CXX=afl-c++ ./configure && make -j$(nproc)
+    cp ./target ./target_cmplog
+
+    # 4. CMPCOV / Laf-intel — splits multi-byte comparisons to ease path exploration
+    AFL_LLVM_LAF_ALL=1 CC=afl-cc CXX=afl-c++ ./configure && make -j$(nproc)
+    cp ./target ./target_cmpcov
+    ```
+
+    Only the main (`-t`) binary is strictly required. The sanitizer, CMPLOG, and CMPCOV binaries are optional but strongly recommended for deep campaigns.
+  </Step>
+
+  <Step title="Prepare a minimal seed corpus">
+    AFL++ needs at least one valid input to bootstrap mutation. A small but representative seed corpus dramatically outperforms a single dummy file.
+
+    ```bash
+    mkdir -p ./corpus
+    echo 'seed' > ./corpus/seed1
+    ```
+
+    For file-format targets (XML, PDF, PNG, …) drop a few real-world samples into `./corpus` instead. AFL Runner will verify the directory is non-empty before starting and will create a placeholder if it is.
+  </Step>
+
+  <Step title="(Optional) Create an aflr config file">
+    For campaigns you run repeatedly, storing all options in a TOML file is cleaner than long CLI invocations. Place the file in your working directory as `aflr_cfg.toml` and AFL Runner will pick it up automatically — no `--config` flag needed.
+
+    ```toml
+    [target]
+    path      = "./target_afl"
+    san_path  = "./target_asan"
+    cmpl_path = "./target_cmplog"
+    cmpc_path = "./target_cmpcov"
+    # Pass @@ for file-based harnesses; omit for stdin-based ones
+    args      = ["@@"]
+
+    [afl_cfg]
+    runners      = 16
+    seed_dir     = "./corpus"
+    solution_dir = "/tmp/afl_out"
+    # Optional: a token dictionary accelerates structured-format fuzzing
+    # dictionary = "./target.dict"
+
+    [session]
+    name   = "my_campaign"
+    runner = "tmux"
+
+    [misc]
+    tui      = true
+    detached = false
+    ```
+
+    Command-line flags always override config file values, so you can tweak individual runs without editing the file.
+  </Step>
+
+  <Step title="Preview the generated commands">
+    Use `aflr gen` to print the AFL++ invocations without executing anything. This is the safest way to verify that runner counts, binary assignments, and power schedules look correct before committing to a long campaign.
+
+    ```bash
+    aflr gen \
+      -t ./target_afl \
+      -s ./target_asan \
+      -c ./target_cmplog \
+      -l ./target_cmpcov \
+      -i ./corpus \
+      -o /tmp/afl_out \
+      -n 16
+    ```
+
+    The output shows each `afl-fuzz` invocation in full, including the `-M`/`-S` designators, power schedules (`-p`), mutation modes (`-P`), and which runners carry the `-c` (CMPLOG) flag.
+  </Step>
+
+  <Step title="Launch the campaign">
+    Replace `gen` with `run` to create the tmux session and start all fuzzers. Add `--tui` to open the built-in monitoring TUI immediately after the session starts.
+
+    ```bash
+    aflr run \
+      -t ./target_afl \
+      -s ./target_asan \
+      -c ./target_cmplog \
+      -l ./target_cmpcov \
+      -i ./corpus \
+      -o /tmp/afl_out \
+      -n 16 \
+      --session-name my_campaign \
+      --tui
+    ```
+
+    AFL Runner will prompt once for confirmation, then create the tmux session, write a PID file to `/tmp/.my_campaign_<pid>.pids`, and — because `--tui` was passed — launch the TUI overlay rather than attaching to the raw tmux session.
+
+    <Tip>
+      Use `--dry-run` with `aflr run` to print the commands and immediately exit, just as `aflr gen` does. This is handy when you want to double-check a config-file-driven run without actually starting fuzzers.
+    </Tip>
+  </Step>
+
+  <Step title="Monitor campaign progress">
+    The AFL Runner TUI aggregates data from all fuzzer instances in a single terminal view. Its panels mirror the information in `afl-whatsup` but update live:
+
+    | Panel | What it shows |
+    |---|---|
+    | **Process timing** | Runtime, last find time, last crash/hang time per instance |
+    | **Overall results** | Aggregate execs/sec, corpus entries, crashes, hangs |
+    | **Stage progress** | Current mutation stage and cycle depth |
+    | **Nerd stats** | Stability, bitmap coverage, path counts |
+    | **Crashes / Hangs** | Running totals with timestamps |
+    | **Logs** | Live stderr output from each `afl-fuzz` process |
+
+    You can also launch the TUI independently against any existing output directory:
+
+    ```bash
+    aflr tui /tmp/afl_out
+    ```
+
+    This makes `aflr tui` a full drop-in replacement for `afl-whatsup`.
+  </Step>
+
+  <Step title="Stop the campaign">
+    Kill the tmux session and all child `afl-fuzz` processes with:
+
+    ```bash
+    aflr kill my_campaign
+    ```
+
+    AFL Runner checks both tmux and screen for a matching session name and terminates whichever it finds. The PID file is used to clean up any stray processes that outlive the session.
+  </Step>
+</Steps>
+
+<Note>
+**How AFL Runner distributes strategies across runners**
+
+In `multiple-cores` mode (the default), AFL Runner implements the AFL++ best-practice distribution automatically:
+
+- **Instance 0** is always the main fuzzer (`-M`), running with no special mutation modifiers.
+- **Power schedules** cycle across all instances in order: `fast → explore → coe → lin → quad → exploit → rare`, then repeat.
+- **Mutation modes** (`-P explore` / `-P exploit`) are assigned probabilistically: ~40 % of secondaries get explore, ~20 % get exploit.
+- **CMPLOG** (`-c`) is assigned to roughly 30 % of runners, split across Standard (`-l 2`), Extended (`-l 3`), and Transforms (`-l 2AT`) modes.
+- **CMPCOV** (Laf-intel binary) replaces the target binary on up to 2–3 secondary runners depending on total runner count.
+- **MOpt mutator** (`-L 0`) and **sequential queue cycling** (`-Z`) are sprinkled in at ~10 % probability each.
+
+These ratios mirror the recommendations in the [AFL++ documentation](https://aflplus.plus/docs/fuzzing_in_depth/#c-using-multiple-cores).
+</Note>
+
+<Tip>
+**Deterministic command generation with `--seed`**
+
+AFL Runner's strategy assignment uses an internal PRNG. Passing `--seed <N>` pins the PRNG so that the same seed always produces the same set of `afl-fuzz` commands — useful for reproducing a specific campaign layout or sharing exact configurations with a colleague:
+
+```bash
+aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 16 --seed 0xdeadb33f
+```
+
+Add `--use-seed-afl` to forward the same seed value to AFL++ itself for deterministic queue ordering.
+</Tip>
+
+<Tip>
+**Auto-generated session names**
+
+If you omit `--session-name`, AFL Runner generates a deterministic name from the target binary filename, input directory name, and target arguments using a 6-digit numeric hash:
+
+```
+<target_binary_name>_<6-digit-hash>
+# e.g.  xmllint_482931
+```
+
+The same target + corpus + args combination always produces the same name, so you can reliably reference the session across terminals without writing it down.
+</Tip>

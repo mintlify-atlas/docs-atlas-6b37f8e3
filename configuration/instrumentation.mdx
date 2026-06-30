@@ -1,0 +1,337 @@
+---
+title: "AFL++ Instrumentation Types Supported by AFL Runner"
+sidebarTitle: "Instrumentation"
+description: "AFL Runner supports four binary variants: standard AFL++ instrumented, AddressSanitizer, CMPLOG, and CMPCOV/Laf-intel. Each improves bug detection in different ways."
+---
+
+AFL Runner is built around the concept of a **harness** — a collection of up to five binary variants of your target that are compiled with different AFL++ instrumentation passes and orchestrated together during a campaign. Rather than running every fuzzer instance against a single binary, AFL Runner assigns the right binary to the right instance automatically: the CMPLOG binary only goes to instances that will use it, the CMPCOV binary only where the coverage gain is worth the overhead, and the sanitizer binary only where crash sensitivity matters. You compile each variant once and point AFL Runner at each path; it handles the rest. All binary variants except the standard AFL++ binary are optional — omitting any of them causes those instances to fall back to the standard binary.
+
+<Note>
+  SAN, CMPLOG, and CMPCOV binaries are all optional. If you provide only the standard AFL++ binary, AFL Runner launches all instances against that single binary with no degradation in correctness — you simply forgo the additional bug-detection and comparison-solving capabilities those variants provide.
+</Note>
+
+---
+
+## Standard AFL++ binary
+
+**CLI flag:** `-t` / `--target`  
+**Config key:** `target.path`
+
+The standard AFL++ binary is the only required binary. It must be compiled with AFL++'s compiler wrapper so that AFL++'s coverage feedback instrumentation is embedded. Every fuzzer instance that is not assigned a CMPCOV binary will use this binary as its target.
+
+### Compiling
+
+<CodeGroup>
+
+```bash Basic instrumentation
+CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_afl
+```
+
+```bash With AFL_HARDEN (recommended)
+AFL_HARDEN=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_afl
+```
+
+```bash Single source file
+afl-cc -o mytarget_afl mytarget.c
+```
+
+</CodeGroup>
+
+`AFL_HARDEN=1` enables compile-time hardening checks (stack canaries, fortify source) that give AFL++ a better chance of catching memory errors that do not rise to the level of a crash without sanitizers, at a small performance cost.
+
+### Usage
+
+```bash
+aflr run -t ./mytarget_afl -i ./seeds -o ./output -n 8
+```
+
+```toml
+[target]
+path = "./mytarget_afl"
+```
+
+<Warning>
+  Do not compile the standard AFL++ binary with sanitizer flags (`-fsanitize=address` etc.) and also pass it as the main target. Sanitizer binaries run 2–5× slower and consume significantly more memory. Use a dedicated SAN binary passed via `--san-target` / `san_path` so AFL Runner can assign it only to a subset of instances.
+</Warning>
+
+---
+
+## AddressSanitizer binary
+
+**CLI flag:** `-s` / `--san-target`  
+**Config key:** `target.san_path`
+
+The sanitizer binary is compiled with one or more of AFL++'s sanitizer integration environment variables. AFL Runner assigns this binary to a subset of secondary fuzzer instances, giving those instances much higher sensitivity to memory safety violations that produce no observable crash in the standard binary (use-after-free reads, heap overflows that overwrite non-critical memory, etc.).
+
+### Compiling
+
+<CodeGroup>
+
+```bash AddressSanitizer
+AFL_USE_ASAN=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_asan
+```
+
+```bash UndefinedBehaviorSanitizer
+AFL_USE_UBSAN=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_ubsan
+```
+
+```bash Combined ASAN + UBSAN
+AFL_USE_ASAN=1 AFL_USE_UBSAN=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_san
+```
+
+```bash MemorySanitizer (clang only)
+AFL_USE_MSAN=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_msan
+```
+
+</CodeGroup>
+
+### Usage
+
+```bash
+aflr run -t ./mytarget_afl -s ./mytarget_asan -i ./seeds -o ./output -n 8
+```
+
+```toml
+[target]
+path     = "./mytarget_afl"
+san_path = "./mytarget_asan"
+```
+
+<Warning>
+  Sanitizer binaries have significantly higher memory requirements. ASAN in particular adds roughly 2× RAM overhead per process. When running many runners on a machine with limited memory, providing a SAN binary can cause OOM kills. Monitor `free -m` during the first few minutes of a campaign and reduce runner count if needed.
+</Warning>
+
+---
+
+## CMPLOG binary
+
+**CLI flag:** `-c` / `--cmpl-target`  
+**Config key:** `target.cmpl_path`
+
+The CMPLOG binary is compiled with AFL++'s `AFL_LLVM_CMPLOG=1` pass, which instruments every comparison operation in the target to log the two operands being compared. AFL++ uses this data to automatically satisfy magic byte checks, checksums, and multi-byte string comparisons — cases that pure random mutation struggles to solve. AFL Runner assigns the CMPLOG binary to approximately **30% of runner instances**, distributing three CMPLOG analysis modes across them for maximum coverage.
+
+### CMPLOG modes
+
+| Mode | AFL++ flag | Share of CMPLOG slots | Purpose |
+|---|---|:---:|---|
+| Standard | `-l 2` | ~70% | Logs integer and string comparisons |
+| Extended | `-l 3` | ~10% | Logs all Standard comparisons plus additional checks |
+| Transforms | `-l 2AT` | ~20% | Applies arithmetic transforms and automatic dictionary extraction |
+
+For small CMPLOG slot counts the assignment is simplified:
+
+| CMPLOG instances | Modes applied |
+|---|---|
+| 1 | Transforms only (`-l 2AT`) |
+| 2 | Standard + Transforms |
+| 3 | Standard + Extended + Transforms |
+
+### Compiling
+
+```bash
+AFL_LLVM_CMPLOG=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_cmplog
+```
+
+CMPLOG instrumentation is a pure LLVM pass — no runtime library changes are needed. The binary is larger and slower than the standard binary due to the comparison logging overhead, which is why AFL Runner limits it to a subset of instances.
+
+### Usage
+
+```bash
+aflr run -t ./mytarget_afl -c ./mytarget_cmplog -i ./seeds -o ./output -n 8
+```
+
+```toml
+[target]
+path      = "./mytarget_afl"
+cmpl_path = "./mytarget_cmplog"
+```
+
+<Note>
+  CMPLOG is incompatible with AFL++ Nyx mode. If `nyx_mode = true` is set, AFL Runner will reject a CMPLOG binary at startup with an error.
+</Note>
+
+---
+
+## CMPCOV / Laf-intel binary
+
+**CLI flag:** `-l` / `--cmpc-target`  
+**Config key:** `target.cmpc_path`
+
+The CMPCOV binary is compiled with `AFL_LLVM_LAF_ALL=1`, which activates AFL++'s Laf-intel instrumentation. Laf-intel transforms multi-byte comparison operations into chains of single-byte comparisons, making it far easier for AFL++'s byte-level mutations to incrementally satisfy complex conditions (for example, matching a 4-byte magic number one byte at a time). AFL Runner **replaces the standard binary** with the CMPCOV binary for a small fixed number of instances:
+
+| Total runners | CMPCOV instances |
+|---|:---:|
+| 0 – 2 | 0 |
+| 3 – 7 | 1 |
+| 8 – 15 | 2 |
+| 16+ | 3 |
+
+CMPCOV is never assigned to an instance that already has CMPLOG (`-c`) assigned, since both target the comparison-solving problem and combining them on the same instance provides no additional benefit.
+
+### Compiling
+
+```bash
+AFL_LLVM_LAF_ALL=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_cmpcov
+```
+
+### Usage
+
+```bash
+aflr run -t ./mytarget_afl -l ./mytarget_cmpcov -i ./seeds -o ./output -n 8
+```
+
+```toml
+[target]
+path      = "./mytarget_afl"
+cmpc_path = "./mytarget_cmpcov"
+```
+
+---
+
+## Coverage binary
+
+**CLI flag:** used with `aflr cov -t`  
+**Config key:** `target.cov_path`
+
+The coverage binary is used exclusively by the `aflr cov` command to generate LLVM source-level coverage reports from the test cases in the AFL++ output directory. It is never passed to `afl-fuzz` and plays no role in fuzzing itself. `aflr cov` walks each fuzzer's queue directory and replays every test case through the coverage binary to accumulate `.profraw` data, then invokes `llvm-profdata merge` and `llvm-cov` to produce the final report.
+
+### Compiling
+
+<CodeGroup>
+
+```bash AFL_LLVM_CPROF (source-based coverage via AFL++)
+AFL_LLVM_CPROF=1 CC=afl-cc CXX=afl-c++ ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_cov
+```
+
+```bash Native clang source-based coverage flags
+CC="clang" CXX="clang++" \
+  CFLAGS="-fprofile-instr-generate -fcoverage-mapping" \
+  CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping" \
+  ./configure --disable-shared
+make -j$(nproc)
+cp ./src/mytarget ./mytarget_cov
+```
+
+</CodeGroup>
+
+`llvm-profdata` and `llvm-cov` (matching the clang version used to compile) must be on `PATH` when running `aflr cov`.
+
+### Usage
+
+```bash
+# Run coverage over the output directory from a previous campaign
+aflr cov -t ./mytarget_cov -o ./output -- --arg1 @@
+```
+
+```toml
+[target]
+path     = "./mytarget_afl"
+cov_path = "./mytarget_cov"
+
+[coverage]
+report_type = "HTML"
+```
+
+<Note>
+  Coverage instrumentation is incompatible with AFL++ Nyx mode. If `nyx_mode = true` is set, AFL Runner will reject a coverage binary at startup.
+</Note>
+
+---
+
+## Complete compile example
+
+The following builds all five binary variants of a hypothetical `target.c` in a single workflow.
+
+<CodeGroup>
+
+```bash Standard AFL++ binary
+CC=afl-cc AFL_HARDEN=1 \
+  afl-cc -o target_afl target.c -lz
+```
+
+```bash AddressSanitizer binary
+AFL_USE_ASAN=1 \
+  afl-cc -o target_asan target.c -lz
+```
+
+```bash CMPLOG binary
+AFL_LLVM_CMPLOG=1 \
+  afl-cc -o target_cmplog target.c -lz
+```
+
+```bash CMPCOV / Laf-intel binary
+AFL_LLVM_LAF_ALL=1 \
+  afl-cc -o target_cmpcov target.c -lz
+```
+
+```bash Coverage binary
+AFL_LLVM_CPROF=1 \
+  afl-cc -o target_cov target.c -lz
+```
+
+</CodeGroup>
+
+With all five binaries compiled, the corresponding config section is:
+
+```toml
+[target]
+path      = "./target_afl"
+san_path  = "./target_asan"
+cmpl_path = "./target_cmplog"
+cmpc_path = "./target_cmpcov"
+cov_path  = "./target_cov"
+args      = ["@@"]
+```
+
+And the equivalent single-line `aflr run` invocation:
+
+```bash
+aflr run \
+  -t ./target_afl \
+  -s ./target_asan \
+  -c ./target_cmplog \
+  -l ./target_cmpcov \
+  -i ./seeds \
+  -o ./output \
+  -n 16
+```
+
+---
+
+## Nyx mode
+
+AFL++ Nyx mode (`--nyx-mode` / `nyx_mode = true`) is a snapshot-based fuzzing mode that uses KVM virtualization for extremely high throughput on targets that are difficult to reset between runs. When Nyx mode is enabled, the `--target` path must point to a **Nyx share directory** (a directory containing the Nyx configuration and snapshot artifacts) rather than an executable binary. AFL Runner validates that the path is a directory and rejects non-directory paths at startup.
+
+```bash
+aflr run --nyx-mode -t ./nyx_share_dir -i ./seeds -o ./output -n 4
+```
+
+```toml
+[afl_cfg]
+nyx_mode = true
+
+[target]
+path = "./nyx_share_dir"
+```
+
+<Warning>
+  CMPLOG (`cmpl_path` / `--cmpl-target`) and coverage (`cov_path`) binaries are **not compatible** with Nyx mode. AFL Runner will exit with an error if either is specified alongside `nyx_mode = true`. The CMPCOV and sanitizer binaries are accepted in Nyx mode.
+</Warning>

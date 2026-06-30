@@ -1,0 +1,423 @@
+---
+title: "AFL Runner TOML Configuration File Reference"
+sidebarTitle: "Config File"
+description: "AFL Runner loads project configuration from an aflr_cfg.toml file or a path specified by --config. Covers all sections: target, coverage, afl_cfg, session, and misc."
+---
+
+AFL Runner supports a TOML project configuration file that lets you persist all campaign settings alongside your target binaries. On startup, `aflr` automatically looks for `aflr_cfg.toml` in the current working directory. If found, its values are loaded and merged with any CLI flags you provide — CLI flags always win over config file values, so you can override individual settings without editing the file. If you want to store your config at a different path or with a different name, pass `--config <path>` to any `aflr` subcommand and the file will be loaded from that location instead.
+
+<Note>
+  For auto-discovery to work, the file must be named exactly `aflr_cfg.toml` and placed in the directory where you invoke `aflr`. Use `--config /path/to/myconfig.toml` to load any other file name or location.
+</Note>
+
+## Configuration sections
+
+The config file is divided into five TOML sections, each corresponding to a logical grouping of options. All keys are optional — omit any key to fall back on the CLI flag or built-in default.
+
+---
+
+## `[target]`
+
+Defines the binary variants AFL Runner will use to build its fuzzing harness. Only `path` is strictly required; all other binary paths are optional and activate additional instrumentation when provided.
+
+<ParamField path="path" type="string">
+  Absolute or relative path to the primary AFL++-instrumented binary. This binary is used by all fuzzer instances that are not assigned a CMPCOV binary. **Required** for `aflr run` and `aflr gen`.
+
+  ```toml
+  path = "/path/to/afl_instrumented/target"
+  ```
+</ParamField>
+
+<ParamField path="san_path" type="string">
+  Path to the sanitizer-instrumented binary (e.g. compiled with `AFL_USE_ASAN=1`, `AFL_USE_UBSAN=1`, or combined sanitizers). AFL Runner assigns this binary to a subset of secondary fuzzer instances for enhanced crash detection. Omit if you have not compiled a sanitizer variant.
+
+  ```toml
+  san_path = "/path/to/sanitizer/target"
+  ```
+</ParamField>
+
+<ParamField path="cmpl_path" type="string">
+  Path to the CMPLOG-instrumented binary (compiled with `AFL_LLVM_CMPLOG=1`). AFL Runner automatically assigns the CMPLOG binary to approximately 30% of runner instances, distributing CMPLOG modes (Standard, Extended, Transforms) across them.
+
+  ```toml
+  cmpl_path = "/path/to/cmplog/target"
+  ```
+</ParamField>
+
+<ParamField path="cmpc_path" type="string">
+  Path to the CMPCOV / Laf-intel-instrumented binary (compiled with `AFL_LLVM_LAF_ALL=1`). AFL Runner assigns this binary to 1–3 instances depending on total runner count. Omit if you have not compiled a CMPCOV variant.
+
+  ```toml
+  cmpc_path = "/path/to/cmpcov/target"
+  ```
+</ParamField>
+
+<ParamField path="cov_path" type="string">
+  Path to the coverage-instrumented binary used exclusively by `aflr cov`. This binary should be compiled with LLVM source-based coverage instrumentation (`-fprofile-instr-generate -fcoverage-mapping` or `AFL_LLVM_CPROF=1`). It is never passed to `afl-fuzz`.
+
+  ```toml
+  cov_path = "/path/to/cov/target"
+  ```
+</ParamField>
+
+<ParamField path="args" type="array of strings">
+  Arguments to pass to the target binary. Use `@@` as a placeholder where AFL++ should substitute the mutated input file path. For targets that read from stdin, omit `@@` entirely — AFL++ pipes input automatically.
+
+  ```toml
+  args = ["-foo", "--bar", "baz", "@@"]
+  ```
+</ParamField>
+
+---
+
+## `[coverage]`
+
+Controls how `aflr cov` generates LLVM coverage reports from the AFL++ output directory. These settings are ignored by `aflr run` and `aflr gen`.
+
+<ParamField path="report_type" type="string">
+  Output format for the coverage report. Accepted values are `"HTML"` and `"TEXT"`. HTML produces an interactive annotated source view; TEXT produces a plain-text summary suitable for CI log output.
+
+  ```toml
+  report_type = "HTML"
+  ```
+</ParamField>
+
+<ParamField path="split_reports" type="boolean" default="false">
+  When `true`, AFL Runner generates a separate coverage report for each AFL++ queue sub-directory (one per fuzzer instance) rather than a single unified report over all queues. Useful for comparing per-instance coverage contributions.
+
+  ```toml
+  split_reports = false
+  ```
+</ParamField>
+
+<ParamField path="misc_show_args" type="array of strings">
+  Extra arguments appended verbatim to the `llvm-cov show` invocation. Refer to the [llvm-cov show documentation](https://llvm.org/docs/CommandGuide/llvm-cov.html#llvm-cov-show) for all available flags.
+
+  ```toml
+  misc_show_args = ["--format=html"]
+  ```
+</ParamField>
+
+<ParamField path="misc_report_args" type="array of strings">
+  Extra arguments appended verbatim to the `llvm-cov report` invocation. Refer to the [llvm-cov report documentation](https://llvm.org/docs/CommandGuide/llvm-cov.html#llvm-cov-report) for all available flags.
+
+  ```toml
+  misc_report_args = []
+  ```
+</ParamField>
+
+---
+
+## `[afl_cfg]`
+
+Controls the AFL++ campaign parameters: how many processes to launch, where to find inputs and outputs, and which fuzzing strategy to apply.
+
+<ParamField path="runners" type="integer">
+  Total number of `afl-fuzz` processes to spawn. In `MultipleCores` mode, the first instance is the `-M` main fuzzer and the remaining `runners - 1` are `-S` secondary fuzzers. Defaults to `1` if not specified.
+
+  ```toml
+  runners = 8
+  ```
+</ParamField>
+
+<ParamField path="afl_binary" type="string">
+  Absolute or relative path to a custom `afl-fuzz` binary. When omitted, AFL Runner uses whichever `afl-fuzz` is found on `PATH`.
+
+  ```toml
+  afl_binary = "/path/to/afl-fuzz"
+  ```
+</ParamField>
+
+<ParamField path="seed_dir" type="string">
+  Path to the seed corpus directory passed to `afl-fuzz -i`. Defaults to `/tmp/afl_input` if not specified and not overridden by CLI.
+
+  ```toml
+  seed_dir = "/path/to/input_dir"
+  ```
+</ParamField>
+
+<ParamField path="solution_dir" type="string">
+  AFL++ output directory passed to `afl-fuzz -o`. Crashes, hangs, and queue entries are written here. Defaults to `/tmp/afl_output` if not specified and not overridden by CLI.
+
+  ```toml
+  solution_dir = "/path/to/output_dir"
+  ```
+</ParamField>
+
+<ParamField path="dictionary" type="string">
+  Path to an AFL++ token dictionary file passed via `-x`. Provides AFL++ with domain-specific tokens (e.g. protocol keywords, file format magic bytes) to improve mutation quality.
+
+  ```toml
+  dictionary = "/path/to/dictionary"
+  ```
+</ParamField>
+
+<ParamField path="afl_flags" type="string">
+  Raw AFL++ flags appended to **every** generated `afl-fuzz` command verbatim. Use this to pass any `afl-fuzz` option that AFL Runner does not manage natively, such as a custom title, a fixed PRNG seed, or a timeout multiplier.
+
+  ```toml
+  afl_flags = "-T 'MyFuzzer' -s 1234 -t 1000+"
+  ```
+</ParamField>
+
+<ParamField path="mode" type="string">
+  Strategy mode used to generate AFL++ commands. Accepted values: `"Default"`, `"MultipleCores"`, `"CIFuzzing"`. Defaults to `"MultipleCores"` when not specified. See the [Fuzzing Modes](/configuration/fuzzing-modes) reference for a full breakdown of each mode.
+
+  ```toml
+  mode = "MultipleCores"
+  ```
+</ParamField>
+
+<ParamField path="nyx_mode" type="boolean">
+  Enable AFL++ Nyx mode by passing `-Y` to all fuzzer instances. When `true`, the `target.path` must point to a Nyx share directory (a directory, not an executable). CMPLOG and coverage instrumentation are incompatible with Nyx mode and will be rejected at startup.
+
+  ```toml
+  nyx_mode = false
+  ```
+</ParamField>
+
+---
+
+## `[session]`
+
+Controls how AFL Runner manages the multiplexer session that hosts the fuzzer processes.
+
+<ParamField path="dry_run" type="boolean" default="false">
+  When `true`, AFL Runner prints all generated `afl-fuzz` commands to stdout without creating a session or executing them. Equivalent to `aflr gen`. Useful for inspecting the exact command lines that would be run.
+
+  ```toml
+  dry_run = false
+  ```
+</ParamField>
+
+<ParamField path="name" type="string">
+  Custom name for the tmux or screen session created by `aflr run`. If not provided, AFL Runner auto-generates a session name. Useful when running multiple campaigns simultaneously on the same host.
+
+  ```toml
+  name = "my_session"
+  ```
+</ParamField>
+
+<ParamField path="runner" type="string">
+  Multiplexer backend to use for session management. Accepted values: `"tmux"` (default) and `"screen"`. The chosen backend must be installed and available on `PATH`.
+
+  ```toml
+  runner = "tmux"
+  ```
+</ParamField>
+
+---
+
+## `[misc]`
+
+Miscellaneous options that control the AFL Runner launch experience and performance tuning.
+
+<ParamField path="tui" type="boolean" default="false">
+  When `true`, AFL Runner automatically attaches the `aflr tui` stats display after launching the fuzzing session. Has no effect when `dry_run` is also `true`.
+
+  ```toml
+  tui = true
+  ```
+</ParamField>
+
+<ParamField path="detached" type="boolean" default="false">
+  When `true`, AFL Runner starts the fuzzing session without attaching to it. The session runs in the background and can be attached manually with `tmux attach` or `screen -r`. Has no effect when `dry_run` is `true`.
+
+  ```toml
+  detached = false
+  ```
+</ParamField>
+
+<ParamField path="ramdisk" type="boolean" default="false">
+  When `true`, AFL Runner attempts to create and use a RAM-backed filesystem for AFL++ to store its `.cur_input` scratch file. This can reduce disk I/O pressure on spinning disks or reduce wear on SSDs during long campaigns.
+
+  ```toml
+  ramdisk = false
+  ```
+</ParamField>
+
+<ParamField path="seed" type="integer">
+  Seed value for the AFL Runner internal PRNG, which governs the randomized distribution of strategies across fuzzer instances. Setting this to a fixed value produces **deterministic command generation** — given the same seed and runner count, the exact same set of `afl-fuzz` commands is always generated.
+
+  ```toml
+  seed = 0xdeadb33fc0ffee
+  ```
+</ParamField>
+
+<ParamField path="use_seed_afl" type="boolean" default="false">
+  When `true`, the `seed` value from `[misc]` is also forwarded to every `afl-fuzz` instance via `-s`, enabling deterministic AFL++ fuzzing. Has no effect unless `seed` is also set.
+
+  ```toml
+  use_seed_afl = false
+  ```
+</ParamField>
+
+---
+
+## Annotated template
+
+This is the canonical configuration template shipped with AFL Runner (`AFLR_CFG_TEMPL.toml`). Every supported key is present and annotated.
+
+```toml
+[target]
+# Target binary to fuzz
+path = "/path/to/afl_instrumented/target"
+
+# Instrumented with *SAN binary to use
+san_path = "/path/to/sanitizer/target"
+
+# Instrumented with CMPLOG binary to use
+cmpl_path = "/path/to/cmplog/target"
+
+# Instrumented with Laf-intel/CMPCOV binary to use
+cmpc_path = "/path/to/cmpcov/target"
+
+# Instrumented for code-coverage dumping
+cov_path = "/path/to/cov/target"
+
+# Target binary arguments, including @@ if needed
+args = ["-foo", "--bar", "baz", "@@"]
+
+[coverage]
+# Report type: HTML, TEXT
+report_type = "HTML"
+
+# Generate a report for each queue sub-directory instead of a unified one
+split_reports = false
+
+# Miscellaneous flags the user wants to provide extra to `llvm-cov show...`
+# Compare: https://llvm.org/docs/CommandGuide/llvm-cov.html#llvm-cov-show
+misc_show_args = ["--format=html"]
+
+# Miscellaneous flags the user wants to provide extra to `llvm-cov report...`
+# Compare: https://llvm.org/docs/CommandGuide/llvm-cov.html#llvm-cov-report
+misc_report_args = []
+
+[afl_cfg]
+# Amount of processes to spin up
+runners = 1
+
+# Custom path to 'afl-fuzz' binary
+afl_binary = "/path/to/afl-fuzz"
+
+# Seed corpus directory
+seed_dir = "/path/to/input_dir"
+
+# Solution/Crash output directory (AFL++ output_dir)
+solution_dir = "/path/to/output_dir"
+
+# Token dictionary to use
+dictionary = "/path/to/dictionary"
+
+# Custom AFL flags
+afl_flags = "-T 'MyFuzzer' -s 1234 -t 1000+"
+
+# Select the mode that determines the fuzzing strategy
+# Available modes: Default, MultipleCores, CIFuzzing
+mode = "MultipleCores"
+
+[session]
+# Spin up a custom tmux session with the fuzzers
+dry_run = false
+
+# Custom tmux session name
+name = "my_session"
+
+# Runner backend to use: [tmux, screen]
+runner = "tmux"
+
+[misc]
+# Enable TUI mode
+tui = true
+
+# Start with no tui and detached from any session
+detached = false
+
+# If specified the AFLR will attempt to create a ramdisk for fuzzing
+ramdisk = false
+
+# Provide a seed for AFLR internal PRNG to get deterministic command generation
+seed = 0xdeadb33fc0ffee
+
+# Allow feeding the seed to AFL for deterministic fuzzing campaigns
+use_seed_afl = false
+```
+
+---
+
+## Real-world example: fuzzing xmllint
+
+The following config is from the AFL Runner examples directory. It fuzzes `xmllint` from libxml2 2.10.0 with 6 runners, all four binary variants, and an XML token dictionary.
+
+```toml
+[target]
+# Target binary to fuzz
+path = "./xmllint_instr_2.10.0"
+
+# Instrumented with *SAN binary to use
+san_path = "./xmllint_san_2.10.0"
+
+# Instrumented with CMPLOG binary to use
+cmpl_path = "./xmllint_cmplog_2.10.0"
+
+# Instrumented with Laf-intel/CMPCOV binary to use
+cmpc_path = "./xmllint_cmpcov_2.10.0"
+
+# Instrumented for code-coverage dumping
+cov_path = "./xmllint_coverage_2.10.0"
+
+# Target binary arguments, including @@ if needed
+args = [
+  "--memory",
+  "--noenc",
+  "--nocdata",
+  "--dtdattr",
+  "--loaddtd",
+  "--valid",
+  "--xinclude",
+  "@@",
+]
+
+[coverage]
+# Report type: HTML, TEXT
+report_type = "TEXT"
+
+# Generate a report for each queue sub-directory instead of a unified one
+split_reports = false
+
+# Miscellaneous flags the user wants to provide extra to `llvm-cov show...`
+misc_show_args = []
+
+# Miscellaneous flags the user wants to provide extra to `llvm-cov report...`
+misc_report_args = []
+
+[afl_cfg]
+# Amount of processes to spin up
+runners = 6
+
+# Seed corpus directory
+seed_dir = "./seed_corpus"
+
+# Solution/Crash output directory
+solution_dir = "/tmp/aflr_demo_solutions"
+
+# Token dictionary to use
+dictionary = "./xml.dict"
+
+# Custom AFL flags
+afl_flags = "-T 'AFLR_DEMO'"
+
+[session]
+dry_run = false
+name = "aflr_demo_session"
+runner = "tmux"
+
+[misc]
+tui = true
+detached = false
+ramdisk = false
+```
+
+<Tip>
+  `afl_flags` accepts any raw AFL++ flag string. Common uses include `-T 'MyFuzzer'` to set a custom fuzzer title in the AFL++ status screen, `-s <seed>` to fix the AFL++ PRNG seed for reproducibility, and `-t 1000+` to set a generous timeout with the `+` suffix that skips slow inputs rather than aborting. Multiple flags can be combined in a single quoted string.
+</Tip>

@@ -1,0 +1,121 @@
+---
+title: "aflr gen — Generate AFL++ Fuzzing Commands"
+sidebarTitle: "gen"
+description: "aflr gen builds the complete set of afl-fuzz invocations following multi-core best practices without executing them. Useful for inspection and scripting."
+---
+
+`aflr gen` constructs the full sequence of `afl-fuzz` command lines that would be used for a multi-core fuzzing campaign and prints them to stdout — without creating any session, spawning any process, or touching the filesystem. It applies the same multi-core strategy logic as `aflr run`: one primary fuzzer is assigned the `-M` role, remaining runners receive secondary `-S` roles with power-schedule and instrumentation assignments drawn from the configured mode. Use `aflr gen` whenever you want to audit the exact commands, feed them into an external orchestrator, or verify that your binary paths and options resolve correctly before committing to a live campaign.
+
+## Synopsis
+
+```bash
+aflr gen [OPTIONS] [-- <TARGET_ARGS>...]
+```
+
+## Options
+
+### Target Binaries
+
+<ParamField path="-t, --target" type="path" optional>
+  Path to the AFL++-instrumented target binary to fuzz. This is the main binary used by the primary fuzzer instance and most secondaries. Either this flag or `--config` must be provided.
+</ParamField>
+
+<ParamField path="-s, --san-target" type="path" optional>
+  Path to a `*SAN`-instrumented build of the target (e.g. compiled with AddressSanitizer). When provided, aflr designates one secondary runner to execute against this binary.
+</ParamField>
+
+<ParamField path="-c, --cmpl-target" type="path" optional>
+  Path to a `CMPLOG`-instrumented binary. One secondary fuzzer instance will be generated in CMPLOG mode (`-c`) targeting this binary to improve comparison-based coverage.
+</ParamField>
+
+<ParamField path="-l, --cmpc-target" type="path" optional>
+  Path to a `Laf-intel`/`CMPCOV`-instrumented binary. One secondary instance will be generated with `LAF_INTEL` environment settings pointing to this binary.
+</ParamField>
+
+### Fuzzing Configuration
+
+<ParamField path="-n, --runners" type="integer" optional default="1">
+  Number of `afl-fuzz` command lines to generate. The first is always the primary (`-M`); the rest are secondaries (`-S`). Defaults to `1` if not set.
+</ParamField>
+
+<ParamField path="-i, --input-dir" type="path" optional default="/tmp/afl_input">
+  Path to the seed corpus directory passed as the `-i` argument to every generated `afl-fuzz` invocation. Defaults to `/tmp/afl_input`.
+</ParamField>
+
+<ParamField path="-o, --output-dir" type="path" optional default="/tmp/afl_output">
+  Path to the AFL++ output directory passed as the `-o` argument to every generated command. Defaults to `/tmp/afl_output`.
+</ParamField>
+
+<ParamField path="-x, --dictionary" type="path" optional>
+  Path to a token dictionary file. When provided, the `-x` flag is appended to all generated `afl-fuzz` invocations.
+</ParamField>
+
+<ParamField path="-b, --afl-binary" type="string" optional>
+  Override the `afl-fuzz` binary name or path used in the generated command strings. Useful when generating commands intended for a specific AFL++ installation.
+</ParamField>
+
+<ParamField path="-m, --mode" type="enum" optional default="multiple-cores">
+  Selects the command-generation strategy. Controls which AFL++ flags, power schedules, and environment variables are distributed across the runner set. Accepted values:
+
+  - `default` — minimal flag set, close to a bare `afl-fuzz` invocation
+  - `multiple-cores` — *(default)* full multi-core strategy with power schedule rotation and instrumentation-aware secondary assignment
+  - `ci-fuzzing` — lightweight flag set suited for short continuous integration runs
+</ParamField>
+
+<ParamField path="--seed" type="integer" optional>
+  Integer seed for aflr's internal PRNG. Fixes the random assignments of power schedules and secondary roles so that `aflr gen` produces identical output across multiple invocations given the same inputs.
+</ParamField>
+
+<ParamField path="--use-seed-afl" type="bool" optional default="false">
+  When set, includes `AFL_RANDOM_SEED=<value>` in the generated environment for each `afl-fuzz` invocation. Requires `--seed` to be specified.
+</ParamField>
+
+<ParamField path="--nyx-mode" type="bool" optional default="false">
+  Generates commands targeting AFL++ Nyx mode. Requires a Nyx-enabled AFL++ build when the commands are eventually executed.
+</ParamField>
+
+<ParamField path="--config" type="path" optional>
+  Path to a TOML configuration file. Config file values are merged before command generation; explicit CLI flags take precedence.
+</ParamField>
+
+### Target Arguments
+
+```bash
+aflr gen [OPTIONS] -- <TARGET_ARGS>...
+```
+
+Pass target binary arguments after a `--` separator. Use `@@` where AFL++ should substitute the mutated input file path. These arguments are appended to every generated `afl-fuzz` invocation after the target binary.
+
+## Examples
+
+```bash
+# Preview the 8-runner command set for a single binary
+aflr gen -t ./target_afl -i ./corpus -o /tmp/out -n 8
+
+# Include SAN and CMPLOG binaries in the generated commands
+aflr gen -t ./target_afl -s ./target_asan -c ./target_cmplog -n 16
+
+# Generate commands in CI fuzzing mode
+aflr gen -t ./target_afl -i ./corpus -o /tmp/out -n 4 -m ci-fuzzing
+
+# Deterministic generation — same seed always produces the same output
+aflr gen -t ./target_afl -i ./corpus -o /tmp/out -n 8 --seed 12345
+
+# Load configuration from a TOML file
+aflr gen --config ./aflr_cfg.toml
+
+# Full multi-binary set with a dictionary and target arguments
+aflr gen -t ./target_afl -s ./target_asan -c ./target_cmplog -l ./target_cmpcov \
+  -i ./corpus -o /tmp/out -n 16 -x ./tokens.dict -- @@
+
+# Verify AFL_RANDOM_SEED propagation
+aflr gen -t ./target_afl -i ./corpus -o /tmp/out -n 4 --seed 99 --use-seed-afl
+```
+
+<Tip>
+  `aflr gen` is the safest way to validate your configuration before launching a campaign. Pipe its output to a file or shell script to build custom orchestration pipelines, integrate with CI systems, or wrap individual commands with resource-limiting tools like `taskset` or `cgroups` wrappers — without any of the session-management overhead of `aflr run`.
+</Tip>
+
+<Note>
+  `aflr gen` never writes to disk or launches processes. If the target binary path does not exist, aflr will still resolve and print the commands — validation of binary existence happens at execution time in `aflr run`.
+</Note>

@@ -1,0 +1,64 @@
+---
+title: "aflr kill — Stop a Running Fuzzing Session"
+sidebarTitle: "kill"
+description: "aflr kill terminates a running tmux or screen session by name, stopping all AFL++ fuzzers inside it. Supports tab completion for session names."
+---
+
+`aflr kill` terminates a named tmux or screen session and all child processes running inside it, bringing a fuzzing campaign to a clean stop. Because each campaign session has a known name — either one you assigned via `--session-name` or the auto-generated `{target}_{hash}` name reported by `aflr run` — `aflr kill` gives you a single targeted command to stop any campaign without needing to locate individual `afl-fuzz` PIDs manually or navigate into the multiplexer session. It is designed to complement `aflr run`: start a campaign with `aflr run`, stop it with `aflr kill`.
+
+## Synopsis
+
+```bash
+aflr kill <SESSION_NAME>
+```
+
+## Arguments
+
+<ParamField path="session_name" type="string" required>
+  The name of the tmux or screen session to terminate. This must exactly match the session name used when the campaign was launched — either the value passed to `--session-name` in `aflr run`, or the auto-generated name printed by `aflr run` at startup.
+
+  When shell completions are installed, this argument supports tab completion that enumerates currently active session names (see below).
+</ParamField>
+
+## Behavior
+
+When invoked, `aflr kill` sends a termination signal to the named multiplexer session. The session and every process it contains — including all `afl-fuzz` instances — are stopped immediately. The AFL++ output directory and all findings written to disk are preserved; `aflr kill` only stops the running processes.
+
+## Tab Completion
+
+When aflr's shell completion scripts are installed, pressing `<TAB>` after `aflr kill` dynamically queries the list of active tmux session names and presents them as completion candidates. This eliminates the need to remember auto-generated session names from long-running campaigns.
+
+To install shell completions (example for bash):
+
+```bash
+aflr completions bash >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Examples
+
+```bash
+# Kill a session started with a custom name
+aflr kill my_campaign
+
+# Kill an auto-named session (name printed by aflr run at startup)
+aflr kill target_afl_482910
+
+# Use tab completion to discover active session names
+aflr kill <TAB>
+
+# Typical workflow: launch, fuzz, then stop
+aflr run -t ./target_afl -i ./corpus -o /tmp/out -n 16 \
+  --session-name libfoo_campaign --detached
+
+# ... later, when done ...
+aflr kill libfoo_campaign
+```
+
+<Warning>
+  `aflr kill` stops the session immediately without draining in-flight mutations or syncing state. The AFL++ output directory remains intact with all findings written so far, but any fuzzer state held in memory is lost. If you need a graceful shutdown, send `SIGTERM` to the individual `afl-fuzz` processes instead.
+</Warning>
+
+<Tip>
+  If you forgot the session name for a running campaign, use `tmux ls` or `screen -ls` to list all active sessions before running `aflr kill`. Alternatively, if shell completions are installed, `aflr kill <TAB>` will enumerate them for you directly.
+</Tip>

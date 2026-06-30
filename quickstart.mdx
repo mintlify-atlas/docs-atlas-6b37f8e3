@@ -1,47 +1,169 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with AFL Runner in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Launch your first multi-core AFLPlusPlus campaign with AFL Runner. Generate commands, run in tmux, and monitor progress with the built-in TUI."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through launching a complete multi-core AFLPlusPlus campaign using AFL Runner from scratch. By the end you will have generated a full set of `afl-fuzz` invocations, started them in a tmux session, and attached the built-in TUI to monitor progress in real time — all using a single tool.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Prepare your prerequisites">
+    Before invoking `aflr`, you need two things in place:
+
+    1. **An AFL++-instrumented target binary.** Compile your target at least once with `afl-clang-fast` (or `afl-clang-lto`, `afl-gcc-fast`, etc.). For best results in `multiple-cores` mode, compile additional variants with Address Sanitizer (`-fsanitize=address`), CMPLOG (`AFL_LLVM_CMPLOG=1`), and CMPCOV (`AFL_LLVM_LAF_ALL=1`).
+    2. **A seed corpus directory.** Create a directory containing at least one non-empty, representative input file for your target. Even a single valid sample is enough to get started.
 
     ```bash
-    npm install your-package
+    # Example: compile a plain AFL++ instrumented binary
+    CC=afl-clang-fast ./configure --prefix=/tmp/target_build
+    make -j$(nproc)
+
+    # Prepare a minimal corpus
+    mkdir -p ./corpus
+    echo "hello" > ./corpus/seed1
+    ```
+
+    <Note>
+      If no `-i` / `--input-dir` flag is provided, AFL Runner defaults to `/tmp/afl_input` as the corpus directory, and `/tmp/afl_output` as the output directory.
+    </Note>
+  </Step>
+
+  <Step title="Generate the fuzzing commands with aflr gen">
+    Use `aflr gen` to produce and inspect the full set of `afl-fuzz` invocations before executing anything. This is the safest first step — it lets you verify runner count, mode, and binary assignments without touching your system.
+
+    ```bash
+    aflr gen -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8
+    ```
+
+    | Flag | Meaning |
+    |---|---|
+    | `-t` / `--target` | Path to the AFL++-instrumented target binary |
+    | `-i` / `--input-dir` | Seed corpus directory |
+    | `-o` / `--output-dir` | AFL++ output directory (crashes, queue, stats) |
+    | `-n` / `--runners` | Number of parallel `afl-fuzz` processes to launch |
+
+    The default mode is `multiple-cores`, which automatically assigns one process as the main fuzzer (`-M`) and distributes the remaining `n-1` processes as secondaries (`-S`) with varied power schedules. To explicitly set the mode:
+
+    ```bash
+    aflr gen -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --mode multiple-cores
+    ```
+
+    If you have additional instrumented binaries, supply them directly:
+
+    ```bash
+    aflr gen \
+      -t ./target_afl \
+      -s ./target_asan \
+      -c ./target_cmplog \
+      -l ./target_cmpcov \
+      -i ./corpus \
+      -o /tmp/afl_out \
+      -n 8
+    ```
+
+    AFL Runner routes each binary type to the appropriate runner slot automatically.
+  </Step>
+
+  <Step title="Run the campaign with aflr run">
+    When you are satisfied with the generated commands, use `aflr run` to execute them. It accepts the same flags as `aflr gen` and additionally manages the tmux (or screen) session. Add `--tui` to launch the monitoring interface immediately alongside the fuzzers.
+
+    ```bash
+    aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --tui
+    ```
+
+    AFL Runner creates a tmux session (named automatically, or set with `--session-name`), opens a window for each fuzzer, and starts every `afl-fuzz` process. With `--tui` the terminal transitions directly into the status dashboard.
+
+    To preview the commands that would be run without actually executing them, use `--dry-run`:
+
+    ```bash
+    aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --dry-run
+    ```
+
+    To start the campaign in the background with no attached terminal, use `--detached`:
+
+    ```bash
+    aflr run -t ./target_afl -i ./corpus -o /tmp/afl_out -n 8 --detached
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Monitor with the TUI">
+    If you launched without `--tui`, or if you want to reconnect to the dashboard at any point, run:
 
     ```bash
-    your-cli init
+    aflr tui /tmp/afl_out
     ```
+
+    Pass the AFL++ output directory as the sole argument. The TUI reads the `fuzzer_stats` files written by each running instance and displays aggregate and per-fuzzer metrics — total execs, paths found, crashes, hangs, and exec speed — refreshed in real time. It is a full replacement for `afl-whatsup`.
+
+    <Note>
+      The TUI works against any AFL++ output directory, whether the fuzzers were started by AFL Runner or invoked manually. It does not need to be connected to an active tmux session.
+    </Note>
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Stop the campaign">
+    When you are ready to stop fuzzing, kill the entire session — and every `afl-fuzz` process inside it — with:
 
     ```bash
-    your-cli start
+    aflr kill <session-name>
+    ```
+
+    If you did not set a custom `--session-name`, use tab-completion (requires the `completion` feature) or check your tmux session list to find the auto-generated name:
+
+    ```bash
+    tmux list-sessions
+    ```
+
+    Then kill it:
+
+    ```bash
+    aflr kill my_aflr_session
     ```
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Using a Config File
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+Repeatedly typing long flag lists is error-prone and makes campaign setups hard to reproduce. AFL Runner supports TOML configuration files that capture all settings for a project.
+
+<Tip>
+  Copy the provided `AFLR_CFG_TEMPL.toml` from the repository into your project root, rename it `aflr_cfg.toml`, and fill in your paths. AFL Runner automatically reads `aflr_cfg.toml` from the current working directory whenever `--config` is not explicitly specified — no extra flags needed.
 </Tip>
+
+A minimal `aflr_cfg.toml` for the campaign above looks like this:
+
+```toml
+[target]
+path = "./target_afl"
+san_path  = "./target_asan"
+cmpl_path = "./target_cmplog"
+cmpc_path = "./target_cmpcov"
+
+[afl_cfg]
+runners     = 8
+seed_dir    = "./corpus"
+solution_dir = "/tmp/afl_out"
+mode        = "MultipleCores"
+
+[session]
+runner = "tmux"
+name   = "my_project_fuzz"
+
+[misc]
+tui = true
+```
+
+With the config file in place you can launch a full campaign with just:
+
+```bash
+aflr run
+```
+
+Or load a named config explicitly:
+
+```bash
+aflr run --config /path/to/project.toml
+```
+
+<Note>
+  CLI flags always take precedence over config file values. You can keep a shared project config and override specific settings per invocation — for example, changing the runner count without editing the file: `aflr run -n 16`.
+</Note>

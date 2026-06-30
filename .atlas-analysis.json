@@ -1,0 +1,95 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "AFL Runner",
+  "projectDescription": "A modern CLI tool that streamlines running efficient multi-core AFLPlusPlus fuzzing campaigns with best-practice defaults, automatic session management, coverage reporting, and a real-time TUI.",
+  "theme": "aspen",
+  "primaryColor": "#040404",
+  "lightColor": "#e4b744",
+  "darkColor": "#561743",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/run",
+              "commands/gen",
+              "commands/cov",
+              "commands/tui",
+              "commands/kill",
+              "commands/add-seed"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/config-file",
+              "configuration/fuzzing-modes",
+              "configuration/instrumentation"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/multi-core-campaign",
+              "guides/coverage-reporting",
+              "guides/shell-completion",
+              "guides/session-management"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Automated multi-core AFLPlusPlus campaign setup following official best-practice guidelines",
+    "Three fuzzing modes: Default, MultipleCores, and CIFuzzing",
+    "Support for SAN, CMPLOG, and CMPCOV instrumented binaries",
+    "Tmux and GNU screen session management with automatic layout creation",
+    "Real-time TUI (ratatui-based) for monitoring campaign progress — full afl-whatsup replacement",
+    "TOML-based configuration file support with per-project config auto-discovery",
+    "LLVM-based coverage collection and visualization (HTML and text reports)",
+    "Deterministic command generation via PRNG seeding",
+    "Live seed injection into running campaigns via add-seed",
+    "Shell completion scripts for bash and zsh"
+  ],
+  "publicApiSurface": [
+    "aflr run",
+    "aflr gen",
+    "aflr cov",
+    "aflr tui",
+    "aflr kill",
+    "aflr add-seed",
+    "--target / -t",
+    "--san-target / -s",
+    "--cmpl-target / -c",
+    "--cmpc-target / -l",
+    "--runners / -n",
+    "--input-dir / -i",
+    "--output-dir / -o",
+    "--dictionary / -x",
+    "--afl-binary / -b",
+    "--mode / -m (default | multiple-cores | ci-fuzzing)",
+    "--config",
+    "--seed",
+    "--use-seed-afl",
+    "--nyx-mode",
+    "--session-runner (tmux | screen)",
+    "--session-name",
+    "--tui",
+    "--detached",
+    "--is-ramdisk",
+    "--dry-run",
+    "AFLR_CFG_TEMPL.toml / aflr_cfg.toml config file"
+  ]
+}

@@ -1,0 +1,182 @@
+---
+title: "AFL Runner Fuzzing Modes: Default, MultipleCores, CIFuzzing"
+sidebarTitle: "Fuzzing Modes"
+description: "AFL Runner supports three fuzzing modes that control how power schedules, mutation strategies, CMPLOG, and MOpt are distributed across fuzzer instances."
+---
+
+AFL Runner generates the `afl-fuzz` command line for every runner instance rather than running them all identically. The `--mode` / `-m` flag (or the `mode` key in `[afl_cfg]`) selects the **strategy** used during that generation step, determining which AFL++ flags are assigned, how they are distributed across instances, and whether a dedicated main (`-M`) fuzzer is used. The three available modes are `Default`, `MultipleCores` (the default when no mode is specified), and `CIFuzzing`. Each trades configuration complexity for campaign goal — long multi-core campaigns, minimal control, or short CI pipeline runs respectively.
+
+---
+
+## Default mode
+
+```bash
+aflr run -t ./target -i ./seeds -o ./output -n 4 -m default
+```
+
+Default mode generates identical, minimal `afl-fuzz` invocations for every instance. No power schedules, mutation mode hints, format annotations, MOpt, or sequential queue cycling are applied. The first instance is still launched as `-M main`, and the rest as `-S fuzzer_N`, but beyond that role assignment no additional strategy flags are injected.
+
+Use Default mode when you want **full manual control** over AFL++ behavior. This is appropriate when you are passing a carefully crafted `afl_flags` string that already encodes your strategy, when you are reproducing a specific historical run, or when you are comparing AFL Runner overhead against a hand-written campaign script.
+
+**What is applied in Default mode:**
+- `-M main` for the first instance, `-S fuzzer_N` for the rest
+- CMPLOG (`-c`) if a CMPLOG binary is provided
+- CMPCOV (target binary substitution) if a CMPCOV binary is provided
+- Any raw flags from `afl_flags` / `--afl-flags`
+
+**What is NOT applied in Default mode:**
+- Power schedules (`-p`)
+- Mutation mode hints (`-P explore` / `-P exploit`)
+- Test case format hints (`-a binary` / `-a text`)
+- MOpt mutator (`-L 0`)
+- Sequential queue cycling (`-Z`)
+
+---
+
+## MultipleCores mode (default)
+
+```bash
+# MultipleCores is the default — these are equivalent:
+aflr run -t ./target -i ./seeds -o ./output -n 16
+aflr run -t ./target -i ./seeds -o ./output -n 16 -m multiple-cores
+```
+
+MultipleCores mode is the default and is designed for sustained multi-core fuzzing campaigns. Its strategy directly follows the [AFL++ multi-core documentation](https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/fuzzing_in_depth.md#c-using-multiple-cores). AFL Runner assigns a rich mix of complementary strategies across instances so that the fuzzer ensemble collectively explores more of the target's state space than any single configuration could.
+
+### Instance roles
+
+The first generated command always receives `-M main` (the main fuzzer that drives the queue). All remaining `N - 1` instances receive `-S fuzzer_2` through `-S fuzzer_N` and operate as secondary fuzzers. Strategies below are applied to secondary instances only, never to the main fuzzer.
+
+### Power schedules
+
+Power schedules are applied **cyclically** to all instances (including `-M main`), stepping through the full list in order and wrapping around as needed:
+
+```
+fast → explore → coe → lin → quad → exploit → rare → fast → …
+```
+
+For example, with 10 runners the assignments are:
+`fast, explore, coe, lin, quad, exploit, rare, fast, explore, coe`
+
+### Mutation modes
+
+Approximately **40%** of secondary instances receive `-P explore` and **20%** receive `-P exploit`. The remaining ~40% get no explicit mutation mode and use AFL++'s default behaviour. Assignments are made without replacement so no instance receives two mutation mode flags.
+
+### Test case format hints
+
+Approximately **30%** of secondary instances receive `-a binary` and **30%** receive `-a text`. These hints tell AFL++ whether to bias its mutations towards binary or ASCII data, improving efficiency on format-sensitive targets.
+
+### MOpt mutator
+
+Around **10%** of secondary instances receive `-L 0`, enabling the MOpt mutator. MOpt uses particle swarm optimization to adaptively weight mutation operators. It is not applied when a custom mutator has been specified (i.e., when `AFL_CUSTOM_MUTATOR_LIBRARY` is set).
+
+### Sequential queue cycling
+
+Around **10%** of secondary instances receive `-Z`, which reverts AFL++ to the old sequential (non-randomized) queue processing order. This provides diversity in how the queue is consumed.
+
+### CMPLOG distribution
+
+When a CMPLOG binary is provided via `--cmpl-target` / `cmpl_path`, AFL Runner assigns the `-c` flag to approximately **30% of all runners**. The CMPLOG mode flag (`-l`) is distributed as:
+
+| Mode | Flag | Share of CMPLOG instances |
+|---|---|---|
+| Standard | `-l 2` | ~70% |
+| Extended | `-l 3` | ~10% |
+| Transforms | `-l 2AT` | ~20% |
+
+For small runner counts (1–3 CMPLOG slots), the modes applied are:
+
+| CMPLOG slots | Modes assigned |
+|---|---|
+| 1 | Transforms (`-l 2AT`) |
+| 2 | Standard (`-l 2`), Transforms (`-l 2AT`) |
+| 3 | Standard, Extended, Transforms |
+
+### CMPCOV distribution
+
+When a CMPCOV binary is provided via `--cmpc-target` / `cmpc_path`, AFL Runner substitutes the CMPCOV binary as the target binary for a fixed number of instances, determined by total runner count:
+
+| Total runners | CMPCOV instances |
+|---|---|
+| 0 – 2 | 0 |
+| 3 – 7 | 1 |
+| 8 – 15 | 2 |
+| 16+ | 3 |
+
+CMPCOV is never applied to instances already assigned CMPLOG.
+
+---
+
+## CIFuzzing mode
+
+```bash
+aflr run -t ./target -i ./seeds -o ./output -n 4 -m ci-fuzzing
+```
+
+CIFuzzing mode is designed for **short-duration fuzzing runs** in CI/CD pipelines, typically lasting minutes to a few hours rather than days. It is based on the [AFL++ CI fuzzing documentation](https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/fuzzing_in_depth.md#b-fuzzing-with-a-small-scale-setup). The key difference from MultipleCores mode is that **all strategies are applied to all instances** — there is no `-M` / `-S` role distinction.
+
+### Instance roles
+
+CIFuzzing mode does **not** generate a `-M` main fuzzer. Every instance is treated as a secondary fuzzer, and all strategy flags apply equally across the full set of instances.
+
+### MOpt mutator
+
+Around **10%** of all instances receive `-L 0`. The same custom mutator exclusion logic applies as in MultipleCores mode.
+
+### Sequential queue cycling
+
+Around **20%** of all instances receive `-Z` — a higher ratio than MultipleCores mode, since CI runs benefit from faster queue cycling to increase the diversity of paths exercised within a limited time budget.
+
+### CMPLOG and CMPCOV
+
+CMPLOG and CMPCOV assignments follow the same logic as MultipleCores mode (30% ratio for CMPLOG, fixed count table for CMPCOV) but are distributed across all instances rather than secondary-only.
+
+### What is NOT in CIFuzzing mode
+
+CIFuzzing mode does not apply power schedules, mutation mode hints (`-P`), or format hints (`-a`). The rationale is that with a small time budget, spreading fuzzer effort across many orthogonal configurations provides diminishing returns compared to letting AFL++ self-adapt quickly.
+
+---
+
+## Mode comparison
+
+| Feature | Default | MultipleCores | CIFuzzing |
+|---|:---:|:---:|:---:|
+| Main fuzzer (`-M`) | ✅ | ✅ | ❌ |
+| Secondary fuzzers (`-S`) | ✅ | ✅ | ✅ (all) |
+| Power schedules (`-p`) | ❌ | ✅ cyclic | ❌ |
+| Mutation modes (`-P`) | ❌ | ✅ secondary | ❌ |
+| Format hints (`-a`) | ❌ | ✅ secondary | ❌ |
+| MOpt (`-L 0`) | ❌ | ~10% secondary | ~10% all |
+| Seq. queue cycling (`-Z`) | ❌ | ~10% secondary | ~20% all |
+| CMPLOG (`-c`) | ✅ if binary given | ~30% runners | ~30% runners |
+| CMPCOV (binary swap) | ✅ if binary given | 1–3 instances | 1–3 instances |
+
+---
+
+## Selecting a mode
+
+```bash
+# Long multi-day campaign with 32 cores
+aflr run -t ./target_afl -s ./target_san -c ./target_cmplog \
+  -i ./seeds -o ./output -n 32 -m multiple-cores
+
+# Short 30-minute CI regression check
+aflr run -t ./target_afl -i ./seeds -o ./output -n 4 -m ci-fuzzing
+
+# Manual control — no automatic strategy distribution
+aflr run -t ./target_afl -i ./seeds -o ./output -n 8 -m default \
+  --afl-flags "-p fast -L 0"
+```
+
+Modes can also be set in the config file:
+
+```toml
+[afl_cfg]
+mode = "MultipleCores"   # or "Default" or "CIFuzzing"
+```
+
+<Tip>
+  For sustained multi-day campaigns with 8 or more cores, `MultipleCores` is strongly recommended. It distributes complementary strategies across instances in a way that mirrors the AFL++ developers' own guidance, and it ensures that CMPLOG, CMPCOV, MOpt, and power schedules all contribute without any manual tuning.
+
+  For CI pipelines, `CIFuzzing` is the right choice — it maximises coverage diversity within a short time window by not anchoring any instance to the `-M` main fuzzer role, allowing all instances to independently explore the queue.
+</Tip>

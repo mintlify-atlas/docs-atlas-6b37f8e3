@@ -1,20 +1,58 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "AFL Runner: Multi-Core AFLPlusPlus Campaign Toolbelt"
+sidebarTitle: "Home"
+description: "AFL Runner automates best-practice multi-core AFLPlusPlus fuzzing campaigns with session management, a real-time TUI, and LLVM coverage reporting."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+AFL Runner (`aflr`) is a modern CLI tool written in Rust that takes the friction out of running multi-core [AFLPlusPlus](https://github.com/AFLplusplus/AFLplusplus) fuzzing campaigns. It implements the official AFL++ multi-core best practices out of the box — automatically distributing power schedules, CMPLOG, CMPCOV, and mutation strategies across all your fuzzer instances — so you can focus on finding bugs rather than tuning flags.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install AFL Runner from crates.io or build from source in minutes.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Launch your first multi-core fuzzing campaign with a single command.
+  </Card>
+  <Card title="Command Reference" icon="terminal" href="/commands/run">
+    Full reference for all `aflr` subcommands and flags.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/config-file">
+    Use a TOML config file to store and share per-project fuzzing settings.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## Why AFL Runner?
+
+Running an efficient AFLPlusPlus multi-core campaign requires correctly assigning one `-M` main fuzzer, multiple `-S` secondary fuzzers, rotating power schedules, distributing CMPLOG/CMPCOV instances, and setting up a tmux or screen session — all by hand. AFL Runner automates every part of this, generating the exact command set that mirrors the [AFL++ in-depth documentation](https://aflplus.plus/docs/fuzzing_in_depth/#c-using-multiple-cores).
+
+<CardGroup cols={2}>
+  <Card title="Multi-Core Guide" icon="microchip" href="/guides/multi-core-campaign">
+    Step-by-step walkthrough of a full multi-core fuzzing campaign.
+  </Card>
+  <Card title="Coverage Reporting" icon="chart-bar" href="/guides/coverage-reporting">
+    Collect and visualize LLVM coverage from your fuzzing corpus.
+  </Card>
+  <Card title="Session Management" icon="window-restore" href="/guides/session-management">
+    Manage tmux and screen sessions for long-running campaigns.
+  </Card>
+  <Card title="Shell Completion" icon="keyboard" href="/guides/shell-completion">
+    Enable tab completion for bash and zsh.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<Steps>
+  <Step title="Generate best-practice AFL++ commands">
+    `aflr gen` builds the complete set of `afl-fuzz` invocations following the official multi-core guidelines — one main fuzzer and N-1 secondaries with automatically distributed power schedules, mutation modes, CMPLOG, and CMPCOV assignments.
+  </Step>
+  <Step title="Run campaigns in tmux or screen">
+    `aflr run` creates a dedicated tmux or screen session, lays out all fuzzer panes, and optionally launches the built-in TUI for a centralized view of campaign progress.
+  </Step>
+  <Step title="Monitor with the TUI">
+    `aflr tui` opens a real-time terminal dashboard showing executions/sec, crashes, hangs, corpus size, stability, and stage progress across all running fuzzers — a full replacement for `afl-whatsup`.
+  </Step>
+  <Step title="Collect coverage">
+    `aflr cov` runs your LLVM-instrumented binary against the entire queue corpus and produces HTML or text coverage reports using `llvm-profdata` and `llvm-cov`.
+  </Step>
+</Steps>

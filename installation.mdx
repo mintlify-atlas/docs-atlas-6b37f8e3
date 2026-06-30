@@ -1,0 +1,157 @@
+---
+title: "Install AFL Runner on Linux and macOS"
+sidebarTitle: "Installation"
+description: "Install AFL Runner via cargo install from crates.io or build from source. Requires Rust 1.85+, AFLPlusPlus, and optionally tmux, screen, or LLVM."
+---
+
+AFL Runner can be installed in two ways: directly from [crates.io](https://crates.io/crates/afl_runner) using `cargo install`, or built locally from source. Both methods produce the same `aflr` binary. The crates.io path is the fastest route for most users; building from source gives you access to unreleased changes or lets you customize the feature flags.
+
+<Warning>
+  AFL Runner currently only works on **\*NIX operating systems** (Linux, macOS, and other Unix-like systems). Windows is not supported.
+</Warning>
+
+## Prerequisites
+
+Ensure the following dependencies are present on your system before installing AFL Runner.
+
+| Dependency | Version | Required? | Purpose |
+|---|---|---|---|
+| [Rust toolchain](https://www.rust-lang.org/tools/install) | v1.85.0 | **Required** | Compiling `aflr` |
+| [AFLPlusPlus](https://github.com/AFLplusplus/AFLplusplus) | Latest | **Required** | The underlying fuzzer |
+| [pgrep](https://man7.org/linux/man-pages/man1/pgrep.1.html) | Any | **Required** | Process lookup for session management |
+| [tmux](https://github.com/tmux/tmux) or [screen](https://www.gnu.org/software/screen/) | Any | Optional | Session creation and window layout |
+| [LLVM](https://llvm.org/) | Any | Optional | Coverage collection and report generation |
+
+<Note>
+  `tmux` or `screen` is required if you want AFL Runner to automatically create a multiplexed terminal session and lay out fuzzer panes. Without either, you can still generate commands (`aflr gen`) or run campaigns in detached mode.
+</Note>
+
+## Install from crates.io
+
+Installing from crates.io is the recommended approach for most users. It pulls the latest stable release and compiles it with your local Rust toolchain.
+
+<Steps>
+  <Step title="Install via cargo">
+    Run the following command to download and compile AFL Runner from crates.io:
+
+    ```bash
+    cargo install afl_runner
+    ```
+  </Step>
+  <Step title="Verify the installation">
+    Confirm that the `aflr` binary is on your `PATH` and prints the help output:
+
+    ```bash
+    aflr --help
+    ```
+
+    You should see the subcommand listing for `gen`, `run`, `cov`, `tui`, `kill`, and `add-seed`.
+  </Step>
+  <Step title="(Optional) Install with shell completion support">
+    To enable tab-completion for tmux session names in the `kill` subcommand, install with the `completion` feature flag:
+
+    ```bash
+    cargo install afl_runner --features completion
+    ```
+
+    After installation, generate the completion scripts and source them in your shell. See the [Shell Completion](#shell-completion) section below for per-shell setup instructions.
+  </Step>
+</Steps>
+
+## Build from Source
+
+Building from source is useful when you want the latest unreleased changes from the `main` branch or when you need to modify AFL Runner itself.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/0xricksanchez/AFL_Runner.git
+    cd AFL_Runner
+    ```
+  </Step>
+  <Step title="Build the release binary">
+    ```bash
+    cargo build --release
+    ```
+
+    The compiled binary is placed at `./target/release/aflr`. The release profile enables LTO, `opt-level = 3`, and `codegen-units = 1` for a fully optimized build.
+  </Step>
+  <Step title="Verify the build">
+    Run the binary directly from the build output:
+
+    ```bash
+    ./target/release/aflr --help
+    ```
+
+    Optionally, copy or symlink the binary to a directory on your `PATH`:
+
+    ```bash
+    cp ./target/release/aflr ~/.local/bin/aflr
+    ```
+  </Step>
+  <Step title="(Optional) Generate shell completion scripts">
+    To build and generate completion scripts from source, use the `completion` feature:
+
+    ```bash
+    cargo run --features completion --bin generate_completions
+    ```
+
+    This places completion scripts under the `completions/` directory in the project root.
+  </Step>
+</Steps>
+
+## Side-by-Side Comparison
+
+<CodeGroup>
+  ```bash crates.io (recommended)
+  # Standard install
+  cargo install afl_runner
+
+  # With shell completion support
+  cargo install afl_runner --features completion
+
+  # Verify
+  aflr --help
+  ```
+
+  ```bash Build from Source
+  # Clone and build
+  git clone https://github.com/0xricksanchez/AFL_Runner.git
+  cd AFL_Runner
+  cargo build --release
+
+  # Verify
+  ./target/release/aflr --help
+
+  # Optional: generate completions
+  cargo run --features completion --bin generate_completions
+  ```
+</CodeGroup>
+
+## Shell Completion
+
+Once you have built or installed AFL Runner with the `completion` feature, configure your shell to load the generated scripts.
+
+**Zsh**
+
+```bash
+# Option 1: Source directly in your current session
+source completions/aflr_dynamic.zsh
+
+# Option 2 (recommended): Install to the Zsh completion directory
+mkdir -p ~/.zsh/completions
+cp completions/aflr_dynamic.zsh ~/.zsh/completions/_aflr
+
+# Add to ~/.zshrc:
+fpath=(~/.zsh/completions $fpath)
+autoload -U compinit && compinit
+```
+
+**Bash**
+
+```bash
+# Add to ~/.bashrc:
+source /path/to/completions/aflr_dynamic.bash
+```
+
+With completion active, pressing `<Tab>` after `aflr kill` will suggest the names of all running tmux sessions.

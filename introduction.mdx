@@ -1,0 +1,71 @@
+---
+title: "AFL Runner: Multi-Core AFLPlusPlus Campaign Toolbelt"
+sidebarTitle: "Introduction"
+description: "AFL Runner is a Rust CLI that automates best-practice multi-core AFLPlusPlus campaigns with session management, a real-time TUI, and LLVM coverage reports."
+---
+
+AFL Runner (`aflr`) is a modern Rust CLI tool that takes the friction out of running multi-core [AFLPlusPlus](https://github.com/AFLplusplus/AFLplusplus) fuzzing campaigns. Its default configuration is derived directly from the official AFL++ documentation's [_Using multiple cores_](https://aflplus.plus/docs/fuzzing_in_depth/#c-using-multiple-cores) section, so you get best-practice campaign orchestration without having to manually wire up every instance yourself.
+
+## The Multi-Core Fuzzing Problem
+
+Running a serious AFL++ campaign across many CPU cores is not as simple as spawning multiple `afl-fuzz` processes. You need to designate exactly one main fuzzer (`-M`) while every other instance runs as a secondary (`-S`), assign distinct power schedules across those secondaries, route CMPLOG instrumented binaries to the right runners, optionally attach CMPCOV and sanitizer binaries, name every session pane, and manage the resulting tmux or screen layout — all before a single test case is executed. Getting any of this wrong silently degrades coverage. AFL Runner handles all of it deterministically from a single command invocation.
+
+## Subcommands
+
+AFL Runner exposes six focused subcommands that cover the full campaign lifecycle — from command generation through monitoring and teardown.
+
+<CardGroup cols={2}>
+  <Card title="run" icon="play" href="commands/run">
+    Generate AFL++ commands **and** execute them in a tmux or screen session in one step. Supports an integrated TUI, dry-run mode, RAMDisk, and detached operation.
+  </Card>
+  <Card title="gen" icon="code" href="commands/gen">
+    Generate the full set of `afl-fuzz` invocations and print them without executing anything — useful for inspection, scripting, or CI pipelines.
+  </Card>
+  <Card title="cov" icon="chart-bar" href="commands/cov">
+    Collect and visualize LLVM-based code coverage from a completed or running campaign, producing either an HTML or plain-text report.
+  </Card>
+  <Card title="tui" icon="monitor-waveform" href="commands/tui">
+    Attach a real-time terminal user interface to any running campaign by pointing it at the AFL++ output directory — a full replacement for `afl-whatsup`.
+  </Card>
+  <Card title="kill" icon="circle-stop" href="commands/kill">
+    Terminate a named tmux or screen session and all `afl-fuzz` processes spawned inside it cleanly.
+  </Card>
+  <Card title="add-seed" icon="seedling" href="commands/add-seed">
+    Inject new seed files into the input queue of a live campaign without restarting any fuzzer instances.
+  </Card>
+</CardGroup>
+
+## Fuzzing Modes
+
+AFL Runner supports three campaign modes, selectable via the `-m` / `--mode` flag or the `mode` key in a config file:
+
+- **`multiple-cores`** *(default)* — Follows the AFL++ multi-core best-practice guide: one main fuzzer, distributed power schedules across secondaries, and automatic CMPLOG/CMPCOV/SAN binary routing.
+- **`default`** — Vanilla AFL++ invocations with no opinionated scheduling or binary routing.
+- **`ci-fuzzing`** — A lightweight mode designed for short-lived CI runs based on the [AFL++ CI fuzzing guidance](https://aflplus.plus/docs/fuzzing_in_depth/#5-ci-fuzzing).
+
+## Configuration Files
+
+Every flag available on the command line can also be expressed in a TOML configuration file and passed via `--config <path>`. If no `--config` flag is provided, AFL Runner automatically looks for a file named `aflr_cfg.toml` in the current working directory.
+
+<Note>
+  CLI flags always take precedence over values read from a configuration file. This makes it easy to store a project-level config and override individual settings per run without editing the file.
+</Note>
+
+<Tip>
+  A fully annotated configuration template is maintained in the repository as `AFLR_CFG_TEMPL.toml`. Copy it into your project directory, rename it `aflr_cfg.toml`, fill in the paths, and AFL Runner will pick it up automatically on every subsequent invocation.
+</Tip>
+
+## What AFL Runner Is NOT
+
+AFL Runner is designed as a plug-and-play solution for the stage of a fuzzing campaign where all that remains is spinning up a correctly configured multi-core run. It is deliberately **not** a helper for:
+
+- Compiling a target binary in multiple instrumentation flavors (plain AFL++, ASan, CMPLOG, CMPCOV, coverage)
+- Preparing or minimizing a seed corpus
+- Selecting or generating a token dictionary to improve code coverage
+- Debugging a crashing or stalling fuzzing campaign
+
+You are expected to have instrumented binaries and at least a minimal seed corpus ready before invoking `aflr`.
+
+## Availability
+
+AFL Runner version **0.6.1** is published on [crates.io](https://crates.io/crates/afl_runner) under the package name `afl_runner` and is licensed under the Apache 2.0 License.
